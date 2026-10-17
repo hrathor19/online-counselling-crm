@@ -120,7 +120,6 @@ export async function GET(req: NextRequest) {
         state:       true,
         course:      true,
         college:      true,
-        kappCollegeId: true,
         campaign:    true,
         leadType:    true,
         leadOrigin:  true,
@@ -221,8 +220,8 @@ export async function GET(req: NextRequest) {
      */
     const fixedHeaders = [
       'Lead ID', 'Name',
-      'City', 'State', 'Course', 'College', 'Client Type', 'KAPP College ID', 'Session/Year',
-      'Lead Code', 'Lead Type', 'Lead Origin', 'Zone',
+      'City', 'State', 'Course', 'College', 'Client Type',
+      'Lead Source', 'Lead Type', 'Lead Origin', 'Zone',
       'Status', 'Uploaded By',
       'Assigned To', 'Assigned By', 'Assigned From', 'Prev Assignee 2',
       'Updated At', 'Created At', 'Uploaded At',
@@ -248,7 +247,7 @@ export async function GET(req: NextRequest) {
 
     // Same live lookup the All Leads list uses, so the column downloads exactly
     // as it reads on screen.
-    const { clientTypeOf, sessionYearOf } = await collegeLeadFields(prisma);
+    const { clientTypeOf } = await collegeLeadFields(prisma);
 
     type LeadRow = Prisma.LeadGetPayload<{ select: typeof LEAD_SELECT }>;
 
@@ -264,7 +263,6 @@ export async function GET(req: NextRequest) {
         displayId(l.id),
         l.name,
         l.city, l.state, l.course, l.college, clientTypeOf(l.college),
-        l.kappCollegeId, sessionYearOf(l.college),
         l.campaign, l.leadType, l.leadOrigin, l.leadZone,
         l.status,
         l.uploadedBy?.name ?? '',

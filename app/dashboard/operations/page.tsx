@@ -39,8 +39,6 @@ const singleLeadSchema = z.object({
   state:      z.string().optional(),
   course:     z.string().optional(),
   campaign:   z.string().optional(),
-  leadType:   z.string().optional(),
-  leadOrigin: z.string().optional(),
 });
 type SingleLeadForm = z.infer<typeof singleLeadSchema>;
 
@@ -118,7 +116,7 @@ export default function OperationsPage() {
   // College IDs come from local dropdown options (fast, always available).
   // City/state/course come from external LMS API — optional; if unavailable we skip those validations.
 
-  const { data: kappCollegesRaw } = useQuery<{ id: string; value: string; kappCollegeId: string | null }[]>({
+  const { data: kappCollegesRaw } = useQuery<{ id: string; value: string }[]>({
     queryKey: ['dropdown-colleges'],
     queryFn: () => fetch('/api/dropdown-options?type=COLLEGE').then((r) => r.json()).then((d) => Array.isArray(d) ? d : []),
     staleTime: Infinity,
@@ -136,20 +134,6 @@ export default function OperationsPage() {
   const { data: coursesRaw } = useQuery<{ id: number | string; name: string }[]>({
     queryKey: ['static-courses'],
     queryFn: () => fetch('/api/courses').then((r) => r.json()).then((d) => Array.isArray(d) ? d : []).catch(() => []),
-    staleTime: Infinity,
-  });
-
-  // Lead Type / Lead Origin / Zone come from Manage Dropdowns (Super Admin's
-  // own configured lists), same source the Single Add Lead form's dropdowns
-  // draw from — not free text, so agents can't introduce typo variants.
-  const { data: leadTypesRaw } = useQuery<{ id: string; value: string }[]>({
-    queryKey: ['dropdown-lead-types'],
-    queryFn: () => fetch('/api/dropdown-options?type=LEAD_TYPE').then((r) => r.json()).then((d) => Array.isArray(d) ? d : []),
-    staleTime: Infinity,
-  });
-  const { data: leadOriginsRaw } = useQuery<{ id: string; value: string }[]>({
-    queryKey: ['dropdown-lead-origins'],
-    queryFn: () => fetch('/api/dropdown-options?type=LEAD_ORIGIN').then((r) => r.json()).then((d) => Array.isArray(d) ? d : []),
     staleTime: Infinity,
   });
 
@@ -172,22 +156,14 @@ export default function OperationsPage() {
     () => (kappCollegesRaw ?? []).map((c) => ({ value: c.value, label: c.value })),
     [kappCollegesRaw],
   );
-  const leadTypeOptions = useMemo<SearchableSelectOption[]>(
-    () => (leadTypesRaw ?? []).map((o) => ({ value: o.value, label: o.value })),
-    [leadTypesRaw],
-  );
-  const leadOriginOptions = useMemo<SearchableSelectOption[]>(
-    () => (leadOriginsRaw ?? []).map((o) => ({ value: o.value, label: o.value })),
-    [leadOriginsRaw],
-  );
 
   // Build lookup maps — only block on kappCollegesRaw (local DB); city/state/course are optional
   const validationMaps = useMemo<ValidationMaps | undefined>(() => {
     if (!kappCollegesRaw) return undefined; // wait only for local DB data
 
-    const kappCollegeIdMap = new Map<string, string>();
+    const collegeNameMap = new Map<string, string>();
     kappCollegesRaw.forEach((c) => {
-      if (c.kappCollegeId) kappCollegeIdMap.set(c.kappCollegeId.toLowerCase(), c.value);
+      if (c.value) collegeNameMap.set(c.value.trim().toLowerCase(), c.value.trim());
     });
 
     const cityMap = new Map<string, string>();
@@ -201,7 +177,7 @@ export default function OperationsPage() {
     const courseMap = new Map<string, string>();
     (coursesRaw ?? []).forEach((c) => { if (c.name) courseMap.set(c.name.toLowerCase(), c.name); });
 
-    return { cityMap, stateMap, courseMap, kappCollegeIdMap };
+    return { cityMap, stateMap, courseMap, collegeNameMap };
   }, [kappCollegesRaw, citiesRaw, statesRaw, coursesRaw]);
 
   const mapsLoading = !validationMaps;
@@ -327,11 +303,12 @@ export default function OperationsPage() {
   // ── CSV downloads ─────────────────────────────────────────────────────────────
 
   const downloadSampleCSV = () => {
-    // lead_zone and deal_type are deliberately absent: both are taken from the
-    // college's own configuration in Manage Colleges, so a column for them here
-    // would invite a value that upload silently discards.
-    const headers = ['name', 'email', 'phone', 'city', 'state', 'course', 'college', 'lead_code', 'lead_type', 'lead_origin', 'lead_confirmation', 'lead_stage', 'lead_verification', 'data_calling_type', 'created_at'];
-    const sample  = ['Rahul Sharma', 'rahul@example.com', '9876543210', 'Mumbai', 'Maharashtra', 'B.Tech', 'IIT Bombay', 'Google Ads', 'Organic', 'Website', '', '', '', '', '2026-06-09'];
+    // These eight are the whole upload format. Zone and Deal Type come from
+    // the college's own configuration in Manage Colleges, and Data Calling Type
+    // from the lead-source mapping, so a column for any of them here would
+    // invite a value that upload silently discards.
+    const headers = ['name', 'email', 'phone', 'city', 'state', 'course', 'college', 'lead_source'];
+    const sample  = ['Rahul Sharma', 'rahul@example.com', '9876543210', 'Mumbai', 'Maharashtra', 'B.Tech', 'IIT Bombay', 'Google_Ads'];
     triggerDownload([headers.join(','), sample.join(',')].join('\n'), 'leads_sample.csv');
   };
 
@@ -635,10 +612,6 @@ export default function OperationsPage() {
                 {singleErrors.phone && <p className="text-xs text-destructive">{singleErrors.phone.message}</p>}
               </div>
               <div className="space-y-1.5">
-                <Label>Lead Code</Label>
-                <Input {...regSingle('campaign')} placeholder="e.g. Google Ads" />
-              </div>
-              <div className="space-y-1.5">
                 <Label>City</Label>
                 <SearchableSelect
                   options={cityOptions}
@@ -676,22 +649,8 @@ export default function OperationsPage() {
                 {singleErrors.college && <p className="text-xs text-destructive">{singleErrors.college.message}</p>}
               </div>
               <div className="space-y-1.5">
-                <Label>Lead Type</Label>
-                <SearchableSelect
-                  options={leadTypeOptions}
-                  value={watchSingle('leadType') ?? ''}
-                  onChange={(v) => setSingleValue('leadType', v, { shouldValidate: true })}
-                  placeholder="— Select Lead Type —"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Lead Origin</Label>
-                <SearchableSelect
-                  options={leadOriginOptions}
-                  value={watchSingle('leadOrigin') ?? ''}
-                  onChange={(v) => setSingleValue('leadOrigin', v, { shouldValidate: true })}
-                  placeholder="— Select Lead Origin —"
-                />
+                <Label>Lead Source</Label>
+                <Input {...regSingle('campaign')} placeholder="e.g. Google_Ads" />
               </div>
             </div>
             <DialogFooter>

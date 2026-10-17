@@ -28,7 +28,6 @@ export async function GET() {
         select: {
           id: true,
           value: true,
-          kappCollegeId: true,
           collegeZone: true,
           collegeDealType: true,
           landingPageUrl: true,
@@ -47,7 +46,6 @@ export async function GET() {
         return {
           id: c.id,
           college: c.value,
-          kappCollegeId: c.kappCollegeId,
           zone: c.collegeZone,
           dealType: c.collegeDealType,
           personalised,

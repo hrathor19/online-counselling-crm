@@ -11,8 +11,8 @@ import {
   Users, Users2, UserCog, BarChart3, Activity, ClipboardCheck,
   UserCircle, UserCheck, ClipboardList, LogOut, ChevronRight, ChevronDown,
   GitBranch, CalendarClock, X, ChevronsLeft, ChevronsRight,
-  GraduationCap, Tag, Globe2, CheckSquare, ShieldCheck, Phone,
-  Megaphone, Gauge, Receipt, Layers, KeyRound, Settings, Trash2, Webhook, Search, Target, FileBarChart, Mail, Link2, Hash, Zap,} from 'lucide-react';
+  GraduationCap,
+  Megaphone, Gauge, Receipt, KeyRound, Settings, Trash2, Webhook, Search, Target, FileBarChart, Mail, Link2, Zap, Shuffle, Clock3,} from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
@@ -162,48 +162,6 @@ const NAV: NavEntry[] = [
         href: '/dashboard/super-admin/manage-colleges',
         label: 'Colleges',
         icon: GraduationCap,
-        roles: ['SUPER_ADMIN'],
-      },
-      {
-        href: '/dashboard/super-admin/manage-lead-type',
-        label: 'Lead Type',
-        icon: Tag,
-        roles: ['SUPER_ADMIN'],
-      },
-      {
-        href: '/dashboard/super-admin/manage-lead-origin',
-        label: 'Lead Origin',
-        icon: Globe2,
-        roles: ['SUPER_ADMIN'],
-      },
-      {
-        href: '/dashboard/super-admin/manage-lead-confirmation',
-        label: 'Lead Confirmation',
-        icon: CheckSquare,
-        roles: ['SUPER_ADMIN'],
-      },
-      {
-        href: '/dashboard/super-admin/manage-lead-stage',
-        label: 'Lead Stage',
-        icon: Layers,
-        roles: ['SUPER_ADMIN'],
-      },
-      {
-        href: '/dashboard/super-admin/manage-lead-verification',
-        label: 'Lead Verification',
-        icon: ShieldCheck,
-        roles: ['SUPER_ADMIN'],
-      },
-      {
-        href: '/dashboard/super-admin/manage-lead-codes',
-        label: 'LeadCode List',
-        icon: Hash,
-        roles: ['SUPER_ADMIN'],
-      },
-      {
-        href: '/dashboard/super-admin/manage-data-calling-type',
-        label: 'Data Calling Type',
-        icon: Phone,
         roles: ['SUPER_ADMIN'],
       },
     ],
@@ -384,6 +342,18 @@ const NAV: NavEntry[] = [
         href: '/dashboard/super-admin/configurations/priority-settings',
         label: 'Priority Settings',
         icon: Zap,
+        roles: ['SUPER_ADMIN'],
+      },
+      {
+        href: '/dashboard/super-admin/configurations/attendance-policy',
+        label: 'Attendance Policy',
+        icon: Clock3,
+        roles: ['SUPER_ADMIN'],
+      },
+      {
+        href: '/dashboard/super-admin/configurations/reassignment',
+        label: 'Re-assign Leads',
+        icon: Shuffle,
         roles: ['SUPER_ADMIN'],
       },
       {

@@ -399,12 +399,6 @@ export default function KpiPage() {
     if (d.source === 'LEAD_STAGE_LIVE') return `Assigned leads currently at ${d.leadStages.join(' or ') || '(no stage chosen)'} — live count.`;
     if (d.source === 'RECEIPT_COUNT') return `Approved ${(d.receiptType ?? '').toLowerCase()} receipts, by date paid.`;
     if (d.source === 'LEADS_ASSIGNED') return 'Leads assigned to the agent in the period.';
-    // The dialer-fed sources have no feedback config to describe, and falling
-    // through to the feedback wording below labelled Talktime as "follow-ups
-    // logged", which is the wrong data entirely.
-    if (d.source === 'CALL_TALKTIME_MINUTES') return 'Minutes talked, from the dialer’s post-call records.';
-    if (d.source === 'CALL_COUNT') return 'Calls the dialer reported in the period, answered or not.';
-    if (d.source === 'CALL_CONNECTED_COUNT') return 'Calls the dialer marked CONNECTED in the period.';
     const cats = d.feedbackCategoryIds.map((id) => data?.choices.categories.find((c) => c.id === id)?.name).filter(Boolean);
     const opts = d.feedbackOptionIds.map((id) => data?.choices.options.find((o) => o.id === id)?.label).filter(Boolean);
     const bits = [...cats.map((c) => `${c} category`), ...opts];

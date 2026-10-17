@@ -145,10 +145,6 @@ enum ActivityAction {
   LEAD_INTEGRATION_UPDATED
   LEAD_INTEGRATION_DELETED
   LEADS_EXPORTED
-  // Click-to-call via the DialShree dialer. CALL_INITIATED records who dialled
-  // which lead; the dialer itself holds the CDR and recording.
-  CALL_INITIATED
-  CALL_HANGUP
 }
 
 // Which CRM event fires a configured push — only referral-lead creation for
@@ -183,13 +179,6 @@ enum KpiSource {
   RECEIPT_COUNT
   /// Leads assigned to the agent during the period.
   LEADS_ASSIGNED
-  /// Total talk time in whole minutes, from the dialer's post-call webhook.
-  CALL_TALKTIME_MINUTES
-  /// Calls the dialer reported for the agent in the period.
-  CALL_COUNT
-  /// Calls where the two parties actually spoke (talk time above zero) — the
-  /// dialer reports rung-but-unanswered calls too.
-  CALL_CONNECTED_COUNT
   /// No source — a target can be set but achievement is left blank, for things
   /// the CRM genuinely cannot see.
   NOT_MEASURED
@@ -226,29 +215,22 @@ model User {
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 
-  // This agent's user id in the DialShree dialer (the `agent_user` parameter of
-  // its manual-dial / external-hangup APIs). Click-to-call needs it to bridge
-  // the call to the right agent's softphone, so an agent without it cannot
-  // dial. Mapped by hand when the account is created — the two systems have no
-  // shared key. Unique so two CRM users can never point at the same dialer
-  // seat, which would ring the wrong person.
-  dialshreeId String? @unique
-
   // Second-factor 6-digit PIN gating especially destructive Super Admin
   // tools (e.g. Bulk Delete Leads) — separate from the account password.
   // Null until the admin sets one up from their profile page.
   securityPinHash           String?
   securityPinSetAt          DateTime?
-  securityPinFailedAttempts Int                 @default(0)
+  securityPinFailedAttempts Int                         @default(0)
   securityPinLockedUntil    DateTime?
   adminActionUnlocks        AdminActionUnlock[]
   priorityAssignmentEdits   PriorityAssignmentSetting[] @relation("PriorityAssignmentUpdatedBy")
+  reassignmentRules         ReassignmentRule[]          @relation("ReassignmentRuleCreatedBy")
+  attendancePolicyEdits     AttendancePolicy[]          @relation("AttendancePolicyUpdatedBy")
 
   // KPIs and targets this user has authored. Both are organisation-wide rather
   // than per user, so there is no inverse "targets for me" relation.
   kpiDefinitions KpiDefinition[] @relation("KpiDefinitionCreatedBy")
   kpiTargetsSet  KpiTarget[]     @relation("KpiTargetSetBy")
-  callLogs       CallLog[]
   emailRules     EmailRule[]     @relation("EmailRuleCreatedBy")
   emailRuleScope EmailRule[]     @relation("EmailRuleScopeTl")
 
@@ -529,7 +511,6 @@ model Lead {
 
   // Push history when this lead triggered an external integration (e.g. LMS push)
   integrationLogs LeadIntegrationLog[]
-  callLogs        CallLog[]
 
   // Tracks the most recent feedback option — updated on every feedback submit
   currentFeedbackOptionId String?
@@ -649,22 +630,15 @@ model DropdownOption {
   id                  String       @id @default(cuid())
   type                DropdownType
   value               String
-  kappCollegeId       String? // only used when type = COLLEGE
-  // Also COLLEGE-only, same pattern as kappCollegeId above. A lead's Zone and
-  // Deal Type are properties of the college it belongs to, so they are
-  // configured here once and copied onto every lead ingested for that college
-  // (API and CSV) instead of being sent per lead.
+  // COLLEGE-only. A lead's Zone and Deal Type are properties of the college it
+  // belongs to, so they are configured here once and copied onto every lead
+  // ingested for that college (API and CSV) instead of being sent per lead.
   collegeZone         String?
   collegeDealType     String?
   /// COLLEGE-only: whether this college is a paying client. Read live whenever
   /// a lead is listed rather than copied onto the lead, so setting it later
   /// updates every existing lead for that college instead of only new ones.
   collegeClientType   String?
-  /// Session / academic year the college is recruiting for — free text, so
-  /// "2027" and "2026-27" are both acceptable. Read live by All Leads exactly
-  /// as collegeClientType is, so editing it here updates every existing lead
-  /// for the college rather than only the next ones ingested.
-  collegeSessionYear  String?
   // COLLEGE-only as well: the college's application landing page, handed to
   // students by counsellors. Stored as a template containing {{%agent%}}, which
   // is replaced with the reading agent's ID at display time so the click is
@@ -683,20 +657,12 @@ model DropdownOption {
 
   creator User @relation("DropdownOptionCreator", fields: [createdBy], references: [id])
 
-  /// A college may exist once per session/year — the same college coming back
-  /// for 2027 is a second row, sharing its name and KAPP ID with the 2026 one.
-  /// Only one of them may be ACTIVE at a time, which the API enforces.
-  ///
-  /// The live index additionally specifies `NULLS NOT DISTINCT`, which Prisma
-  /// cannot express. It matters: every non-COLLEGE type leaves
-  /// collegeSessionYear NULL, and under Postgres's default NULLS DISTINCT two
-  /// Lead Types both called "Hot" would become legal. Verified against the real
-  /// index that they are still rejected. `migrate diff` will report this line —
-  /// it is deliberate, not drift to be "fixed".
-  @@unique([type, value, collegeSessionYear])
+  /// One row per value per type. A college is identified by its name now, so
+  /// the name is the key: two colleges cannot share one, and CSV upload and the
+  /// API both resolve a lead's college against it.
+  @@unique([type, value])
   @@index([type, isActive])
   @@index([type, isActive, sortOrder])
-  @@index([kappCollegeId])
 }
 
 // Every lead stage a lead has been through, with when it arrived.
@@ -948,6 +914,22 @@ model Attendance {
   /// and null when no forwarding header reaches the app.
   punchInIp String?
 
+  /// Whether this check-in was after the cutoff in AttendancePolicy.
+  ///
+  /// Decided once, at check-in, and stored — not recomputed from punchInAt on
+  /// read. An admin moving the cutoff later must not retroactively make
+  /// yesterday's on-time agents late, which is exactly what a derived value
+  /// would do. Always false while the cutoff is switched off.
+  isLate Boolean @default(false)
+
+  /// Where the shift was started from, when the browser supplied it.
+  /// `punchInDistanceM` is metres from the configured office at that moment —
+  /// kept so an admin can see a borderline check-in rather than only its
+  /// pass/fail verdict.
+  punchInLatitude  Float?
+  punchInLongitude Float?
+  punchInDistanceM Int?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -1039,11 +1021,93 @@ model PriorityAssignmentSetting {
   cursor Int @default(0)
 
   /// Running totals, so the page can show that it is actually doing something.
-  assignedCount Int       @default(0)
+  assignedCount  Int       @default(0)
   lastAssignedAt DateTime?
 
   updatedById String?
-  updatedBy   User?   @relation("PriorityAssignmentUpdatedBy", fields: [updatedById], references: [id])
+  updatedBy   User?    @relation("PriorityAssignmentUpdatedBy", fields: [updatedById], references: [id])
+  updatedAt   DateTime @updatedAt
+  createdAt   DateTime @default(now())
+}
+
+/// A standing rule that moves stale leads to a different counsellor.
+///
+/// "Stale" is measured on the lead's LATEST feedback: a lead whose newest
+/// follow-up is older than `staleDays` has sat without progress for that long.
+/// A lead with no feedback at all never matches — the rule is about feedback
+/// that stopped changing, not about leads nobody has touched yet.
+///
+/// Rules are evaluated by the scheduler (see /api/cron/reassign-leads) and can
+/// also be previewed or run by hand from Configurations → Re-assign Leads.
+model ReassignmentRule {
+  id       String  @id @default(cuid())
+  name     String
+  /// Off by default: a rule is written, previewed, and only then switched on.
+  isActive Boolean @default(false)
+
+  /// Which current feedback the lead must carry. Options and whole categories
+  /// are OR-ed together; both empty means "any feedback".
+  feedbackOptionIds   String[]
+  feedbackCategoryIds String[]
+
+  /// Whole days the latest feedback must have sat unchanged. At least 1 — a
+  /// rule firing the moment feedback is logged would fight the counsellor.
+  staleDays Int
+
+  /// Who the leads may go to. Empty means every active counselling agent, and
+  /// is re-checked live on each run so a deactivated agent drops out on its
+  /// own. The lead's current owner is always skipped.
+  agentIds String[]
+
+  /// Round-robin position, carried between runs so the rotation continues
+  /// rather than restarting from the first agent every time.
+  cursor Int @default(0)
+
+  /// Most leads one run may move. A guard against a newly-written rule
+  /// matching thousands of leads and redistributing the whole floor at once.
+  maxPerRun Int @default(100)
+
+  /// Running totals, so the page can show the rule is doing something.
+  reassignedCount Int       @default(0)
+  lastRunAt       DateTime?
+
+  createdById String
+  createdBy   User   @relation("ReassignmentRuleCreatedBy", fields: [createdById], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isActive])
+}
+
+/// Floor rules for checking in: how late is late, and where from.
+///
+/// A singleton, like PriorityAssignmentSetting. Off by default in both halves,
+/// so installing this release changes nobody's day until an admin turns it on.
+model AttendancePolicy {
+  id String @id @default("singleton")
+
+  /// ─── Late check-in ──────────────────────────────────────────────────────
+  /// Agents who check in after this time get no FRESH leads for the day — only
+  /// leads that already carry feedback — and re-assignment rules skip them.
+  /// An agent who has not checked in at all is treated the same way.
+  lateCutoffEnabled Boolean @default(false)
+  /// IST wall clock. Stored as hour/minute rather than an instant for the same
+  /// reason EmailRule does: the server runs UTC and an instant would drift.
+  lateCutoffHour    Int     @default(10)
+  lateCutoffMinute  Int     @default(0)
+
+  /// ─── Geofence ───────────────────────────────────────────────────────────
+  /// WFO staff must be within `geofenceRadiusM` of the office to check in.
+  /// WFH staff are exempt — geofencing them would lock them out of the CRM
+  /// entirely, since the attendance gate blocks lead work without a check-in.
+  geofenceEnabled Boolean @default(false)
+  officeLatitude  Float?
+  officeLongitude Float?
+  geofenceRadiusM Int     @default(300)
+
+  updatedById String?
+  updatedBy   User?    @relation("AttendancePolicyUpdatedBy", fields: [updatedById], references: [id])
   updatedAt   DateTime @updatedAt
   createdAt   DateTime @default(now())
 }
@@ -1132,84 +1196,6 @@ model LeadIntegrationLog {
   @@index([integrationId])
   @@index([leadId])
   @@index([success])
-}
-
-/// One completed call, as reported by the DialShree dialer's post-call webhook.
-///
-/// The dialer is the only source of talk time and recordings — the CRM's
-/// click-to-call fires and forgets, and gets no call-progress events back. Rows
-/// arrive after the call ends, so this table is append-mostly and never written
-/// by the UI.
-///
-/// `leadId` and `agentId` are nullable on purpose: a call can legitimately
-/// involve a number no lead holds, or a dialer seat no CRM user is mapped to.
-/// Dropping those rows would lose real call activity, so they are stored
-/// unmatched and can be reconciled later.
-model CallLog {
-  id String @id @default(cuid())
-
-  /// The dialer's own id for the call (`dynamic_data.uniqueid`). Unique so a
-  /// retried or duplicated webhook updates the row instead of adding another.
-  /// Nullable because the field is not guaranteed to be present.
-  uniqueId String? @unique
-
-  leadId String?
-  lead   Lead?   @relation(fields: [leadId], references: [id], onDelete: SetNull)
-
-  agentId String?
-  agent   User?   @relation(fields: [agentId], references: [id], onDelete: SetNull)
-
-  /// Identity exactly as the dialer reported it, kept even when matched, so an
-  /// unmatched row can still be traced and a mis-match can be spotted.
-  phoneCode     String?
-  phoneNumber   String
-  agentSeat     String?
-  agentFullName String?
-  agentEmail    String?
-
-  callType String?
-  campaign String?
-  urlType  String?
-
-  startedAt DateTime?
-  endedAt   DateTime?
-
-  /// Seconds, parsed from the dialer's "MM:SS" / "HH:MM:SS" strings. The raw
-  /// strings are kept alongside because the provider's own sample is internally
-  /// inconsistent (a 12s call with 17s of ring time), and a future format
-  /// change should be visible rather than silently mis-parsed.
-  durationSeconds Int?
-  talkTimeSeconds Int?
-  ringTimeSeconds Int?
-  talkTimeRaw     String?
-  ringTimeRaw     String?
-
-  calledCount     Int?
-  lastLocalCallAt DateTime?
-
-  /// The dialer's own verdict and disposition. `connected` is normalised from
-  /// `callStatus`, falling back to talk time when the dialer sends no status —
-  /// it has been seen to report NOT CONNECTED on a call with seven seconds of
-  /// talk time, so the clock alone would over-count.
-  callStatus             String?
-  connected              Boolean?
-  termReason             String?
-  dispositionDescription String?
-  /// The dialer's own id for the lead, for cross-referencing in their system.
-  dialerLeadId           String?
-
-  recordingUrl String?
-
-  /// The untouched webhook body. Anything not modelled above is still here.
-  payload Json
-
-  receivedAt DateTime @default(now())
-
-  @@index([leadId, startedAt])
-  @@index([agentId, startedAt])
-  @@index([phoneNumber])
-  @@index([startedAt])
-  @@index([connected])
 }
 
 /// What a scheduled email contains.

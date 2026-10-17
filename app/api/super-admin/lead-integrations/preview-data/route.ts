@@ -24,7 +24,7 @@ export async function GET(req: NextRequest) {
 
     const lead = await prisma.lead.findUnique({
       where: { id: leadId },
-      include: { profile: true, referredBy: { select: { name: true } }, assignedTo: { select: { id: true, name: true, email: true, employeeCode: true, dialshreeId: true } } },
+      include: { profile: true, referredBy: { select: { name: true } }, assignedTo: { select: { id: true, name: true, email: true, employeeCode: true } } },
     });
     if (!lead) return NextResponse.json({ error: 'Lead not found' }, { status: 404 });
 

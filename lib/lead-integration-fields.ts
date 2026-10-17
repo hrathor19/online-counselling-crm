@@ -50,12 +50,11 @@ export const FIELD_CATALOG: FieldDef[] = [
   // unassigned lead, which renders as an empty string in the template.
   // There is no single "agent id", so each identifier is offered separately:
   // pick Employee Code to match on a human-readable code, User ID for this
-  // CRM's own primary key, or Dialer ID for the DialShree seat.
+  // CRM's own primary key.
   { key: 'assignedTo_name', label: 'Agent Name', group: 'Agent' },
   { key: 'assignedTo_employeeCode', label: 'Agent Employee Code', group: 'Agent' },
   { key: 'assignedTo_id', label: 'Agent User ID (CRM)', group: 'Agent' },
   { key: 'assignedTo_email', label: 'Agent Email', group: 'Agent' },
-  { key: 'assignedTo_dialshreeId', label: 'Agent Dialer ID (DialShree)', group: 'Agent' },
 
   // LeadProfile — extended student profile (may not exist for every lead)
   { key: 'profile_budget', label: 'Budget', group: 'LeadProfile' },
@@ -116,7 +115,6 @@ export const SAMPLE_LEAD_DATA: Record<string, unknown> = {
   assignedTo_employeeCode: 'EMP-1005',
   assignedTo_id: 'cmrbs2soa000059hhdf5kcdoq',
   assignedTo_email: 'agent@example.com',
-  assignedTo_dialshreeId: '51152',
 
   profile_budget: '2-4 Lakhs',
   profile_courseType: 'Regular',

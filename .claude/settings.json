@@ -11,7 +11,9 @@
       "Bash(npm ls *)",
       "Bash(NODE_PATH=__TRACKED_VAR__/node_modules node -e ' *)",
       "Bash(rm -f \"/private/tmp/claude-501/-Users-himanshurathore-Downloads-Counselling-CRM/1a98682f-9053-4fd3-b8b0-d49072276b00/scratchpad/copy-dropdowns.js\")",
-      "Bash(kill %1)"
+      "Bash(kill %1)",
+      "Bash(node -e \"console.log\\(require\\('crypto'\\).randomBytes\\(32\\).toString\\('hex'\\)\\)\")",
+      "Bash(NODE_PATH=__CMDSUB_OUTPUT__/node_modules node -e ' *)"
     ],
     "additionalDirectories": [
       "/Users/himanshurathore/Downloads/Counselling CRM/app/api/leads/[id]"

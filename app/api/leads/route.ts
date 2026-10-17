@@ -174,11 +174,10 @@ export async function GET(req: NextRequest) {
     // Client Type is a property of the COLLEGE, resolved on every read rather
     // than stored on the lead — so setting it on a college updates all of that
     // college's existing leads, which is the point of it.
-    const { clientTypeOf, sessionYearOf } = await collegeLeadFields(prisma);
+    const { clientTypeOf } = await collegeLeadFields(prisma);
     const withClientType = leads.map((l) => ({
       ...l,
       clientType: clientTypeOf(l.college),
-      sessionYear: sessionYearOf(l.college),
     }));
 
     return NextResponse.json({

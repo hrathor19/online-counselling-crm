@@ -370,9 +370,9 @@ function BulkDeleteLeadsContent() {
           </div>
 
           <div className="space-y-1.5">
-            <Label className="text-xs">Lead Code</Label>
+            <Label className="text-xs">Lead Source</Label>
             <MultiSelectFilter
-              placeholder="Any lead code" options={campaignOptions} selected={filters.campaign}
+              placeholder="Any lead source" options={campaignOptions} selected={filters.campaign}
               onChange={(v) => set('campaign', v)} loading={optsLoading} triggerClassName="h-10 w-full"
             />
           </div>

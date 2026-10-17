@@ -1,4 +1,5 @@
 import { Prisma, PrismaClient } from '@prisma/client';
+import { onTimeAgentIds } from './attendance-policy';
 
 /**
  * Auto-assigning incoming leads by Data Calling Type.
@@ -9,7 +10,7 @@ import { Prisma, PrismaClient } from '@prisma/client';
  * from Configurations → Priority Settings.
  *
  * It runs at ingestion, after the Data Calling Type has been resolved — which
- * for a lead code mapping means after LeadCode List has had its say, so the
+ * for a lead-source mapping means after that mapping has had its say, so the
  * rule matches the value the lead will actually carry rather than whatever the
  * payload asked for.
  */
@@ -54,17 +55,25 @@ export function matchesRule(rule: PriorityRule, dataCallingType: string | null |
  * receiving leads without anyone having to remember to edit the setting.
  * Ordered by id so the rotation is the same sequence on every server and does
  * not shuffle when somebody is renamed.
+ *
+ * Agents who checked in late — or have not checked in at all — are dropped
+ * while the late cutoff is on. Every lead arriving here is brand new and so
+ * carries no feedback, which is exactly what a late agent may not be given.
+ * If that empties the rotation the lead simply waits in Assign Leads, which is
+ * where it would have gone had this feature been off.
  */
 export async function eligibleAgents(
   db: PrismaClient | Prisma.TransactionClient,
   rule: PriorityRule,
 ): Promise<{ id: string; name: string }[]> {
   if (rule.agentIds.length === 0) return [];
-  return db.user.findMany({
+  const agents = await db.user.findMany({
     where: { id: { in: rule.agentIds }, role: 'COUNSELLING_AGENT', isActive: true },
     select: { id: true, name: true },
     orderBy: { id: 'asc' },
   });
+  const onTime = await onTimeAgentIds(db);
+  return onTime ? agents.filter((a) => onTime.has(a.id)) : agents;
 }
 
 /**

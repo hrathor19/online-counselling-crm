@@ -168,7 +168,7 @@ export default function NotificationLeadsPage() {
                   <TableHead>Phone</TableHead>
                   <TableHead>City</TableHead>
                   <TableHead>Course</TableHead>
-                  <TableHead>Lead Code</TableHead>
+                  <TableHead>Lead Source</TableHead>
                   <TableHead>Last Feedback</TableHead>
                   <TableHead>Follow-ups</TableHead>
                   <TableHead className="text-right">Actions</TableHead>

@@ -66,27 +66,6 @@ export const KPI_SOURCES: {
     measurable: true,
   },
   {
-    key: 'CALL_TALKTIME_MINUTES',
-    label: 'Talk time (minutes)',
-    help: 'Total minutes the agent actually spent talking in the period, from the dialer’s post-call webhook. Rounded down to whole minutes.',
-    needs: [],
-    measurable: true,
-  },
-  {
-    key: 'CALL_COUNT',
-    label: 'Calls made (dialer)',
-    help: 'Every call the dialer reported for the agent in the period, answered or not. Unlike “Feedback logged”, this counts the call itself rather than the counsellor writing it up.',
-    needs: [],
-    measurable: true,
-  },
-  {
-    key: 'CALL_CONNECTED_COUNT',
-    label: 'Calls answered (dialer)',
-    help: 'Calls the dialer marked CONNECTED. It reports unanswered calls too, sometimes with a few seconds of talk time, and those are excluded here.',
-    needs: [],
-    measurable: true,
-  },
-  {
     key: 'NOT_MEASURED',
     label: 'Not measured (target only)',
     help: 'Set a target but show no achievement. For anything the CRM genuinely cannot see.',
@@ -344,39 +323,27 @@ export async function computeKpiActual(
       });
 
     case 'RECEIPT_COUNT':
+      // Credited to whoever UPLOADED the receipt, not to whoever holds the lead
+      // now. Those are the same person right up until the lead is reassigned,
+      // and then they are not: the old rule read the lead's current assignee,
+      // so reassigning a lead moved an approved receipt's credit to an agent
+      // who had nothing to do with it and took it from the one who earned it.
+      // Reassignment is routine here, so this was quietly rewriting KPI history
+      // — including for periods already closed and reported on.
+      //
+      // `uploadedById` is stamped from the session at upload time and never
+      // changes afterwards, which is what makes the number stable.
       return db.leadReceipt.count({
         where: {
           status: 'APPROVED',
           ...(def.receiptType ? { type: def.receiptType } : {}),
           paidDate: inPeriod,
-          lead: { assignedToId: userId },
+          uploadedById: userId,
         },
       });
 
     case 'LEADS_ASSIGNED':
       return db.lead.count({ where: { assignedToId: userId, assignedAt: inPeriod } });
-
-    // The three dialer sources below are only as complete as the post-call
-    // webhook. A call whose seat is not mapped to a CRM user is stored but
-    // attributed to nobody, so it counts for no one rather than for everyone.
-    case 'CALL_TALKTIME_MINUTES': {
-      const agg = await db.callLog.aggregate({
-        where: { agentId: userId, startedAt: inPeriod },
-        _sum: { talkTimeSeconds: true },
-      });
-      // Floor, not round: a target of "60 min" should not be met by 59m31s.
-      return Math.floor((agg._sum.talkTimeSeconds ?? 0) / 60);
-    }
-
-    case 'CALL_COUNT':
-      return db.callLog.count({ where: { agentId: userId, startedAt: inPeriod } });
-
-    case 'CALL_CONNECTED_COUNT':
-      // The dialer's own CONNECTED verdict, not a talk-time guess — it reports
-      // seconds of talk time on calls that never got through.
-      return db.callLog.count({
-        where: { agentId: userId, startedAt: inPeriod, connected: true },
-      });
 
     case 'NOT_MEASURED':
     default:
@@ -442,7 +409,7 @@ export const DEFAULT_KPIS: {
   { name: 'Hot Leads', unit: 'leads', source: 'LEAD_STAGE_LIVE', leadStages: ['Hot'], sortOrder: 3 },
   { name: 'Warm Leads', unit: 'leads', source: 'LEAD_STAGE_LIVE', leadStages: ['Warm'], sortOrder: 4 },
   { name: 'Paid Apps', unit: 'apps', source: 'RECEIPT_COUNT', receiptType: 'APPLICATION', sortOrder: 5 },
-  { name: 'Talktime', unit: 'min', source: 'CALL_TALKTIME_MINUTES', sortOrder: 6 },
+  { name: 'Talktime', unit: 'min', source: 'NOT_MEASURED', sortOrder: 6 },
 ];
 
 /**

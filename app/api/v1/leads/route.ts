@@ -49,10 +49,14 @@ import { buildDropdownValidationSets, isAllowedDropdownValue, type DropdownValid
 //                                    // Validated against the provider's course-group
 //                                    // list; the id is stable across renames, which
 //                                    // the name is not.
-//     kappCollegeId: string;        // must match a College's "KAPP College ID" configured
-//                                    // under Manage Colleges — resolves to that college
-//     leadCode: string;             // free text, stored as this lead's "Lead Code"
-//                                    // (shown as the Campaign/Lead Code column in the UI)
+//     college: string;              // must match a college name configured under
+//                                    // Manage Colleges (case- and space-insensitive).
+//                                    // `kappCollegeId` is accepted as an alias key for
+//                                    // callers not yet updated, but its VALUE must now
+//                                    // be the college name, not the old numeric id.
+//     leadCode: string;             // free text, stored as this lead's "Lead Source"
+//                                    // (shown as the Lead Source column in the UI).
+//                                    // `leadSource` is accepted as an alias.
 //     leadType: string;             // must match a value configured under
 //                                    // Manage Dropdowns → Lead Type
 //     leadOrigin: string;           // must match Manage Dropdowns → Lead Origin
@@ -60,8 +64,8 @@ import { buildDropdownValidationSets, isAllowedDropdownValue, type DropdownValid
 //     leadStage: string;            // must match Manage Dropdowns → Lead Stage
 //     leadVerification: string;     // must match Manage Dropdowns → Lead Verification
 //     dataCallingType: string;      // OPTIONAL and ignored — the Data Calling Type now
-//                                    // comes from the lead code via Manage Dropdowns →
-//                                    // LeadCode List. An unmapped code stores "NA".
+//                                    // comes from the lead source mapping.
+//                                    // An unmapped value stores "NA".
 //     createdAt: string;            // format: "yyyy-mm-dd" — the lead's original creation
 //                                    // date on your side (stored separately from this CRM's
 //                                    // own audit timestamp, which always reflects when the
@@ -132,6 +136,32 @@ function isValidCalendarDate(yyyyMmDd: string): boolean {
 
 const req1 = (label: string) => z.string().trim().min(1, `${label} is required`);
 
+/**
+ * "Lead Code" is called "Lead Source" in the UI as of this release.
+ *
+ * The request field stays `leadCode` so every integration already sending it
+ * keeps working untouched; `leadSource` is accepted as an alias for callers
+ * written against the new name. An explicit `leadCode` always wins, so a
+ * caller sending both is never silently overridden.
+ */
+function normaliseLeadSource(raw: unknown): unknown {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return raw;
+  const o = raw as Record<string, unknown>;
+  let out = o;
+  if (o.leadSource !== undefined && o.leadCode === undefined) {
+    const { leadSource, ...rest } = out;
+    out = { ...rest, leadCode: leadSource };
+  }
+  // A college is identified by name now. `kappCollegeId` stays accepted as a
+  // key so a caller that only changes the value keeps working; an explicit
+  // `college` always wins.
+  if (out.kappCollegeId !== undefined && out.college === undefined) {
+    const { kappCollegeId, ...rest } = out;
+    out = { ...rest, college: kappCollegeId };
+  }
+  return out;
+}
+
 const payloadSchema = z.object({
   name: req1('name'),
   email: z.string().trim().min(1, 'email is required').email('Must be a valid email address'),
@@ -144,7 +174,7 @@ const payloadSchema = z.object({
    * way; both are resolved identically in resolveAndValidate.
    */
   course: z.union([z.string().trim().min(1, 'course is required'), z.number()]),
-  kappCollegeId: req1('kappCollegeId'),
+  college: req1('college'),
   leadCode: req1('leadCode'),
   leadType: req1('leadType'),
   leadOrigin: req1('leadOrigin'),
@@ -152,8 +182,8 @@ const payloadSchema = z.object({
   leadStage: req1('leadStage'),
   leadVerification: req1('leadVerification'),
   // Still accepted so existing integrations keep working unchanged, but the
-  // value is no longer used: the lead code decides the Data Calling Type, and a
-  // code that is not in LeadCode List lands as "NA". Loosened from required to
+  // value is no longer used: the lead source decides the Data Calling Type, and
+  // an unmapped value lands as "NA". Loosened from required to
   // optional rather than removed, which cannot break a caller either way.
   dataCallingType: z.string().trim().optional(),
   createdAt: z
@@ -241,8 +271,8 @@ function resolveAndValidate(d: LeadPayload, maps: CrossRefMaps): { errors: Recor
     else resolved.course = canonicalCourse;
   }
 
-  const canonicalCollege = maps.dropdownData.collegeIdMap.get(d.kappCollegeId.toLowerCase());
-  if (!canonicalCollege) errors.kappCollegeId = `"${d.kappCollegeId}" is not a valid KAPP College ID`;
+  const canonicalCollege = maps.dropdownData.collegeNameMap.get(d.college.trim().toLowerCase());
+  if (!canonicalCollege) errors.college = `"${d.college}" is not in the college list`;
   else resolved.college = canonicalCollege;
 
   const checkDropdown = (type: DropdownType, value: string, field: string, label: string) => {
@@ -357,7 +387,7 @@ export async function POST(req: NextRequest) {
     // Single-object request — unchanged behavior/response shape
     // ═══════════════════════════════════════════════════════════════════
     if (!isBulk) {
-      const parsed = payloadSchema.safeParse(body);
+      const parsed = payloadSchema.safeParse(normaliseLeadSource(body));
       if (!parsed.success) return fail(400, 'Validation failed', { errors: fieldErrorsFromZod(parsed.error) });
       const d = parsed.data;
 
@@ -373,7 +403,7 @@ export async function POST(req: NextRequest) {
       // Manage Colleges, so they are copied from there rather than sent per
       // lead. `dealType` was removed from the payload for that reason — a
       // client still sending it is ignored rather than rejected.
-      const collegeAttrs = maps.dropdownData.collegeAttributeMap.get(d.kappCollegeId.toLowerCase());
+      const collegeAttrs = maps.dropdownData.collegeAttributeMap.get(d.college.trim().toLowerCase());
 
       const existing = await prisma.lead.findFirst({
         where: { email, college: college ? { equals: college, mode: 'insensitive' } : null },
@@ -434,7 +464,7 @@ export async function POST(req: NextRequest) {
           updatedAt: new Date(),
           name: d.name, email, phone: d.phone,
           city: resolved.city, state: resolved.state, course: resolved.course, college,
-          kappCollegeId: d.kappCollegeId, campaign: d.leadCode,
+          campaign: d.leadCode,
           leadType: d.leadType, leadOrigin: d.leadOrigin, leadConfirmation: d.leadConfirmation,
           leadStage, leadVerification: d.leadVerification,
           // Lead code decides this, not the payload: an unmapped code lands as
@@ -479,7 +509,7 @@ export async function POST(req: NextRequest) {
 
     // Phase 1 — shape + cross-reference validation for every item (no DB calls)
     for (let index = 0; index < body.length; index++) {
-      const parsed = payloadSchema.safeParse(body[index]);
+      const parsed = payloadSchema.safeParse(normaliseLeadSource(body[index]));
       if (!parsed.success) {
         results[index] = { index, success: false, message: 'Validation failed', errors: fieldErrorsFromZod(parsed.error) };
         continue;
@@ -614,7 +644,7 @@ export async function POST(req: NextRequest) {
               updatedAt: new Date(),
               name: d.name, email: d.email.toLowerCase(), phone: d.phone,
               city: resolved.city, state: resolved.state, course: resolved.course, college,
-              kappCollegeId: d.kappCollegeId, campaign: d.leadCode,
+              campaign: d.leadCode,
               leadType: d.leadType, leadOrigin: d.leadOrigin, leadConfirmation: d.leadConfirmation,
               leadStage: canonicalStage(d.leadStage), leadVerification: d.leadVerification,
               // Same rule as the single-lead path, read from the prebuilt map so
@@ -622,8 +652,8 @@ export async function POST(req: NextRequest) {
               dataCallingType: callingTypeByIndex.get(index) ?? null,
               ...(priorityByIndex.get(index) ? { assignedToId: priorityByIndex.get(index)!, assignedAt: now } : {}),
               // Same as the single-lead path: both come from the college.
-              leadZone: maps.dropdownData.collegeAttributeMap.get(d.kappCollegeId.toLowerCase())?.zone ?? null,
-              dealType: maps.dropdownData.collegeAttributeMap.get(d.kappCollegeId.toLowerCase())?.dealType ?? null,
+              leadZone: maps.dropdownData.collegeAttributeMap.get(d.college.trim().toLowerCase())?.zone ?? null,
+              dealType: maps.dropdownData.collegeAttributeMap.get(d.college.trim().toLowerCase())?.dealType ?? null,
               primaryApplicationConfirm: 'No', primaryAdmissionConfirm: 'No',
               uploadedAt: new Date(`${d.createdAt}T00:00:00.000Z`),
               status: 'APPROVED', approvedById: apiKey.createdById, approvedAt: now,

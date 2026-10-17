@@ -894,7 +894,7 @@ export default function DashboardPage() {
                 icon={Megaphone}
                 iconColor="text-orange-600" iconBg="bg-orange-500/10"
                 accentColor="text-orange-600" accentBg="bg-orange-500/10"
-                label="Lead Code" value={pendingFilters.campaign}
+                label="Lead Source" value={pendingFilters.campaign}
                 onChange={setFilter('campaign')}
                 options={filterOptions.campaigns.map((c) => ({ value: c, label: c }))}
               />

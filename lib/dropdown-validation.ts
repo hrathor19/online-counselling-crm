@@ -4,17 +4,25 @@ import { prisma } from './prisma';
 export interface DropdownValidationSets {
   /** Allowed values per dropdown type (exact, case-sensitive) — e.g. sets[LEAD_TYPE] = Set{"Hot","Cold",...}. */
   sets: Partial<Record<DropdownType, Set<string>>>;
-  /** kappCollegeId (lowercased) → canonical college name, built from the COLLEGE dropdown type. */
-  collegeIdMap: Map<string, string>;
   /**
-   * kappCollegeId (lowercased) → the Zone and Deal Type configured for that
+   * College name (trimmed, lowercased) → the name exactly as configured.
+   *
+   * A college is identified by its name now, so an upload carrying "lpu " or
+   * "LPU" resolves to the row stored as "LPU" and the lead is saved with the
+   * curated spelling rather than whatever the file happened to contain. This
+   * is the same matching rule `collegeLeadFields` uses, so the two cannot
+   * disagree about which row a lead belongs to.
+   */
+  collegeNameMap: Map<string, string>;
+  /**
+   * College name (lowercased) → the Zone and Deal Type configured for that
    * college in Manage Colleges. Leads inherit these on ingest, so both CSV
    * upload and the API read them from here rather than from the payload.
    */
   collegeAttributeMap: Map<string, { zone: string | null; dealType: string | null }>;
   /**
-   * lead code (lowercased) → the Data Calling Type mapped to it in LeadCode
-   * List. Lowercased because the same code arrives in several casings.
+   * lead source (lowercased) → the Data Calling Type mapped to it. Lowercased
+   * because the same value arrives in several casings.
    *
    * Lives on the prebuilt maps rather than being queried per lead: the bulk
    * ingest path creates leads inside a Promise.all, so a lookup per lead would
@@ -31,27 +39,26 @@ export interface DropdownValidationSets {
 export async function buildDropdownValidationSets(): Promise<DropdownValidationSets> {
   const allOptions = await prisma.dropdownOption.findMany({
     where: { isActive: true },
-    select: { type: true, value: true, kappCollegeId: true, collegeZone: true, collegeDealType: true, leadCodeCallingType: true },
+    select: { type: true, value: true, collegeZone: true, collegeDealType: true, leadCodeCallingType: true },
   });
 
   const sets: Partial<Record<DropdownType, Set<string>>> = {};
-  const collegeIdMap = new Map<string, string>();
+  const collegeNameMap = new Map<string, string>();
   const collegeAttributeMap = new Map<string, { zone: string | null; dealType: string | null }>();
   const leadCodeCallingTypeMap = new Map<string, string>();
 
   for (const opt of allOptions) {
     if (opt.type === DropdownType.COLLEGE) {
-      // College ID matching is case-insensitive (it's a code, not a display value)
-      if (opt.kappCollegeId) {
-        const key = opt.kappCollegeId.trim().toLowerCase();
-        collegeIdMap.set(key, opt.value.trim());
-        collegeAttributeMap.set(key, {
-          zone: opt.collegeZone?.trim() || null,
-          dealType: opt.collegeDealType?.trim() || null,
-        });
-      }
+      // Matched on the name, case- and whitespace-insensitively: the value
+      // arriving from a CSV or the API is typed by hand, the list is curated.
+      const key = opt.value.trim().toLowerCase();
+      collegeNameMap.set(key, opt.value.trim());
+      collegeAttributeMap.set(key, {
+        zone: opt.collegeZone?.trim() || null,
+        dealType: opt.collegeDealType?.trim() || null,
+      });
     } else if (opt.type === DropdownType.LEAD_CODE) {
-      // Not added to `sets`: a lead code is a mapping key, not a value anything
+      // Not added to `sets`: a lead source is a mapping key, not a value anything
       // is validated against — a CSV may carry any code at all.
       if (opt.leadCodeCallingType) {
         leadCodeCallingTypeMap.set(opt.value.trim().toLowerCase(), opt.leadCodeCallingType);
@@ -62,7 +69,7 @@ export async function buildDropdownValidationSets(): Promise<DropdownValidationS
     }
   }
 
-  return { sets, collegeIdMap, collegeAttributeMap, leadCodeCallingTypeMap };
+  return { sets, collegeNameMap, collegeAttributeMap, leadCodeCallingTypeMap };
 }
 
 /**

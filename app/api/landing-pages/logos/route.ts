@@ -5,7 +5,7 @@ import { prisma } from '@/lib/prisma';
 import { searchLmsColleges } from '@/lib/lms-api';
 
 /**
- * College logos for the Landing Page list, keyed by KAPP College ID.
+ * College logos for the Landing Page list, keyed by college name.
  *
  * Split out from /api/landing-pages on purpose. The links themselves come
  * straight from our own database and must appear instantly; logos come from the
@@ -32,9 +32,8 @@ export async function GET() {
         type: 'COLLEGE',
         isActive: true,
         landingPageUrl: { not: null },
-        kappCollegeId: { not: null },
       },
-      select: { value: true, kappCollegeId: true },
+      select: { value: true },
     });
 
     const logos: Record<string, string> = {};
@@ -42,14 +41,16 @@ export async function GET() {
     for (let i = 0; i < colleges.length; i += CONCURRENCY) {
       await Promise.all(
         colleges.slice(i, i + CONCURRENCY).map(async (c) => {
-          const wanted = Number(c.kappCollegeId);
-          if (!Number.isFinite(wanted)) return;
+          const wanted = c.value.trim().toLowerCase();
           try {
             // Cached for an hour inside lib/lms-api, so a full floor opening
             // this page costs one round of upstream calls, not one per view.
             const { data } = await searchLmsColleges({ search: c.value, page: 1, limit: 20 });
-            const hit = data.find((r) => r.college_id === wanted);
-            if (hit?.logo_img) logos[String(c.kappCollegeId)] = hit.logo_img;
+            // Matched on the name now that colleges carry no id. The search is
+            // already a name search, so an exact name match is the precise
+            // answer among its fuzzy results.
+            const hit = data.find((r) => r.college_name?.trim().toLowerCase() === wanted);
+            if (hit?.logo_img) logos[c.value] = hit.logo_img;
           } catch {
             // A missing logo is cosmetic — the card falls back to a monogram.
             // Never let it fail the whole response.

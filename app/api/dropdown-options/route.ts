@@ -4,7 +4,6 @@ import { z } from 'zod';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { COLLEGE_ZONES, COLLEGE_DEAL_TYPES, COLLEGE_CLIENT_TYPES } from '@/lib/college-attributes';
-import { collegeSessionConflict } from '@/lib/college-session';
 import { checkLandingPageUrl } from '@/lib/landing-page';
 import { applyLeadCodeMapping } from '@/lib/lead-code';
 import { DropdownType } from '@prisma/client';
@@ -14,7 +13,6 @@ const VALID_TYPES = Object.values(DropdownType);
 const createSchema = z.object({
   type:           z.nativeEnum(DropdownType),
   value:          z.string().min(1).max(200),
-  kappCollegeId:  z.string().min(1).max(100).optional(),
   // COLLEGE only — copied onto every lead ingested for this college. Restricted
   // to the fixed lists in lib/college-attributes.ts, the same source the Manage
   // Colleges dropdowns render from. '' is accepted and stored as NULL, which is
@@ -25,7 +23,6 @@ const createSchema = z.object({
   // COLLEGE only. Free text on purpose: a session is written "2027" by some
   // colleges and "2026-27" by others, so a 4-digit rule would reject a
   // legitimate value. Length-capped and trimmed, nothing more.
-  collegeSessionYear: z.string().max(20).optional().nullable(),
   // COLLEGE only. Shape-checked below rather than here so the admin gets a
   // sentence explaining what is wrong instead of a zod field error.
   landingPageUrl:  z.string().max(1000).optional().nullable(),
@@ -71,7 +68,7 @@ export async function GET(req: NextRequest) {
         ...(showAll ? {} : { isActive: true }),
       },
       orderBy: [{ value: 'asc' }],
-  select: { id: true, type: true, value: true, kappCollegeId: true, collegeZone: true, collegeDealType: true, collegeClientType: true, collegeSessionYear: true, landingPageUrl: true, leadCodeCallingType: true, isActive: true, createdAt: true },
+  select: { id: true, type: true, value: true, collegeZone: true, collegeDealType: true, collegeClientType: true, landingPageUrl: true, leadCodeCallingType: true, isActive: true, createdAt: true },
     });
     return NextResponse.json(options);
   } catch (err) {
@@ -92,11 +89,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
 
-  // For COLLEGE type, kappCollegeId is required
-  if (parsed.data.type === 'COLLEGE' && !parsed.data.kappCollegeId?.trim()) {
-    return NextResponse.json({ error: 'KAPP College ID is required for colleges' }, { status: 400 });
-  }
-
   const landingCheck = checkLandingPageUrl(parsed.data.landingPageUrl ?? '');
   if (!landingCheck.ok) {
     return NextResponse.json({ error: landingCheck.error }, { status: 400 });
@@ -109,34 +101,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: (err as Error).message }, { status: 400 });
   }
 
-  // One college per KAPP College ID per session year, and only one active —
-  // see lib/college-session.ts for why the second half matters.
-  if (parsed.data.type === 'COLLEGE' && parsed.data.kappCollegeId) {
-    const kappId = parsed.data.kappCollegeId.trim();
-    const siblings = await prisma.dropdownOption.findMany({
-      where: { type: 'COLLEGE', kappCollegeId: kappId },
-      select: { value: true, collegeSessionYear: true, isActive: true },
-    });
-    // A new row is created active, so both checks apply.
-    const conflict = collegeSessionConflict(kappId, siblings, {
-      year: parsed.data.collegeSessionYear ?? null,
-      activating: true,
-    });
-    if (conflict) return NextResponse.json({ error: conflict }, { status: 409 });
-  }
-
   try {
     const option = await prisma.dropdownOption.create({
       data: {
         type:          parsed.data.type,
         value:         parsed.data.value.trim(),
-        kappCollegeId: parsed.data.kappCollegeId?.trim() ?? null,
         // Stored only for COLLEGE rows; blank means "not configured", which
         // leaves the corresponding lead field null rather than empty-string.
         collegeZone:     parsed.data.type === 'COLLEGE' ? (parsed.data.collegeZone || null) : null,
         collegeDealType: parsed.data.type === 'COLLEGE' ? (parsed.data.collegeDealType || null) : null,
         collegeClientType: parsed.data.type === 'COLLEGE' ? (parsed.data.collegeClientType || null) : null,
-        collegeSessionYear: parsed.data.type === 'COLLEGE' ? (parsed.data.collegeSessionYear?.trim() || null) : null,
         landingPageUrl:  parsed.data.type === 'COLLEGE' ? (parsed.data.landingPageUrl?.trim() || null) : null,
         leadCodeCallingType: parsed.data.type === 'LEAD_CODE' ? callingType : null,
         createdBy:     session.user.id,
@@ -151,11 +125,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ...option, leadsUpdated }, { status: 201 });
   } catch (err: unknown) {
     if ((err as { code?: string }).code === 'P2002') {
-      // A college's key includes its session year, so a bare "already exists"
-      // would read as a refusal when a different year is in fact allowed.
       return NextResponse.json({
         error: parsed.data.type === 'COLLEGE'
-          ? 'Another college already uses this name for that Session/Year'
+          ? 'Another college already uses this name'
           : 'This value already exists for this type',
       }, { status: 409 });
     }

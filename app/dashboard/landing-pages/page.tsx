@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   Search, Loader2, Link2, Copy, Check, ExternalLink, Building2,
-  Inbox, AlertTriangle, MapPin, Handshake, BadgeCheck,
+  Inbox, AlertTriangle, MapPin, Handshake,
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -23,7 +23,6 @@ import { cn } from '@/lib/utils';
 interface LandingPage {
   id: string;
   college: string;
-  kappCollegeId: string | null;
   zone: string | null;
   dealType: string | null;
   personalised: boolean;
@@ -126,7 +125,6 @@ function LandingPageCard({ item, logo }: { item: LandingPage; logo?: string }) {
             {item.college}
           </p>
           <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-            {item.kappCollegeId && <MetaPill icon={BadgeCheck}>{item.kappCollegeId}</MetaPill>}
             {item.zone && <MetaPill icon={MapPin}>{item.zone}</MetaPill>}
             {item.dealType && <MetaPill icon={Handshake}>{item.dealType}</MetaPill>}
           </div>
@@ -202,7 +200,7 @@ export default function LandingPagesPage() {
     // Matches the college, its ID, its zone/deal type and the link itself, so
     // searching "2027" finds every campaign for that intake year.
     return items.filter((i) =>
-      [i.college, i.kappCollegeId, i.zone, i.dealType, i.url]
+      [i.college, i.zone, i.dealType, i.url]
         .filter(Boolean)
         .some((f) => String(f).toLowerCase().includes(q)),
     );
@@ -301,7 +299,7 @@ export default function LandingPagesPage() {
               <LandingPageCard
                 key={item.id}
                 item={item}
-                logo={item.kappCollegeId ? logoData?.logos?.[item.kappCollegeId] : undefined}
+                logo={logoData?.logos?.[item.college]}
               />
             ))}
           </div>

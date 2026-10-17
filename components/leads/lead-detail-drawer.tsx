@@ -9,14 +9,13 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import {
-  X, Phone, PhoneOff, Mail, PhoneCall, CalendarClock, PhoneIncoming,
+  X, Mail, PhoneCall, CalendarClock, PhoneIncoming,
   LayoutList, CheckCircle2, Loader2, PlusCircle, UserCheck,
   UserCircle2, ChevronDown, Search, Check, ExternalLink,
-  GitBranch, UserPlus, FileCheck, Receipt, Clock3, PlayCircle,
+  GitBranch, UserPlus, FileCheck, Receipt, Clock3,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/use-toast';
-import { useClickToCall } from '@/lib/hooks/use-click-to-call';
 import { cn } from '@/lib/utils';
 import { triggerCelebration, isCelebrationFeedback } from '@/lib/celebrate';
 import { WhatsAppButton } from '@/components/shared/whatsapp-button';
@@ -781,155 +780,6 @@ interface ScheduledCallItem {
   status: 'PENDING' | 'DONE' | 'CANCELLED';
 }
 
-interface DialerCall {
-  id: string;
-  startedAt: string | null;
-  endedAt: string | null;
-  durationSeconds: number | null;
-  talkTimeSeconds: number | null;
-  ringTimeSeconds: number | null;
-  callType: string | null;
-  callStatus: string | null;
-  connected: boolean | null;
-  calledCount: number | null;
-  hasRecording: boolean;
-  agentFullName: string | null;
-  agentSeat: string | null;
-  receivedAt: string;
-  agent: { id: string; name: string } | null;
-}
-
-/** "0:12" from 12 seconds; "1:05:03" once it passes an hour. */
-function formatSeconds(total: number | null | undefined): string {
-  if (total === null || total === undefined) return '—';
-  const h = Math.floor(total / 3600);
-  const m = Math.floor((total % 3600) / 60);
-  const sec = total % 60;
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return h > 0 ? `${h}:${pad(m)}:${pad(sec)}` : `${m}:${pad(sec)}`;
-}
-
-/**
- * One call's recording, loaded only when asked for.
- *
- * The audio is streamed through the CRM rather than linked to the dialer — the
- * dialer serves recordings as `application/forcedownload`, which browsers refuse
- * to play, and its URLs need no authentication. Mounting the <audio> element
- * only after a click keeps a lead with twenty calls from opening twenty
- * connections to the dialer on render.
- */
-function CallRow({ leadId, call }: { leadId: string; call: DialerCall }) {
-  const [playing, setPlaying] = useState(false);
-
-  // The dialer's own verdict is authoritative: it reports NOT CONNECTED on
-  // calls that still carry a few seconds of "talk time", so the clock alone
-  // would overstate how many actually got through.
-  const connected = call.connected === true;
-
-  return (
-    <div className="rounded-md border border-border/40 px-3 py-2">
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
-        {connected ? (
-          <PhoneCall className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
-        ) : (
-          <PhoneOff className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-        )}
-        <span className="font-semibold">{formatIstDateTime(call.startedAt ?? call.receivedAt)}</span>
-        {connected ? (
-          <span className="font-medium text-emerald-700 dark:text-emerald-400">
-            Talked {formatSeconds(call.talkTimeSeconds)}
-          </span>
-        ) : (
-          <span className="text-muted-foreground">Not connected</span>
-        )}
-        {call.calledCount != null && (
-          <span className="text-[10px] text-muted-foreground">attempt #{call.calledCount}</span>
-        )}
-        {call.hasRecording && !playing && (
-          <button
-            type="button"
-            onClick={() => setPlaying(true)}
-            className="ml-auto inline-flex items-center gap-1 rounded border border-border px-1.5 py-0.5 text-[10px] font-medium text-primary transition-colors hover:bg-muted"
-          >
-            <PlayCircle className="h-3 w-3" /> Play
-          </button>
-        )}
-      </div>
-
-      <p className="mt-0.5 text-[11px] text-muted-foreground">
-        {call.agent?.name ?? (call.agentSeat ? `Seat ${call.agentSeat}` : 'Unknown agent')}
-      </p>
-
-      {/* Its own row: the native control needs real width, and squeezing it into
-          the header row alongside the timestamp collapses it to nothing. Mounted
-          only after a click, so a lead with twenty calls does not open twenty
-          connections to the dialer on render. */}
-      {playing && (
-        <audio
-          controls
-          autoPlay
-          preload="none"
-          className="mt-1.5 h-8 w-full"
-          src={`/api/leads/${leadId}/calls/${call.id}/recording`}
-        >
-          Your browser cannot play this recording.
-        </audio>
-      )}
-    </div>
-  );
-}
-
-/**
- * What actually happened on the phone, from the dialer's post-call webhook —
- * as opposed to the feedback the counsellor typed afterwards.
- *
- * Deliberately narrow: when, whether it connected, how long they talked, which
- * attempt it was, and the recording. Ring time, campaign, disposition and
- * hang-up reason are all stored but left off the card — a counsellor scanning a
- * lead's history does not need them, and they crowd out what matters.
- */
-function DialerCallHistory({ leadId }: { leadId: string }) {
-  const { data: calls = [], isLoading } = useQuery<DialerCall[]>({
-    queryKey: ['lead-calls', leadId],
-    queryFn: () =>
-      fetch(`/api/leads/${leadId}/calls`)
-        .then((r) => r.json())
-        .then((d) => (Array.isArray(d) ? d : [])),
-  });
-
-  if (isLoading) return <div className="h-16 animate-pulse rounded-lg bg-muted" />;
-
-  const talked = calls.filter((c) => c.connected).length;
-
-  return (
-    <div>
-      <div className="mb-2 flex flex-wrap items-baseline gap-x-2">
-        <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Dialer Calls</p>
-        {calls.length > 0 && (
-          <p className="text-[10px] text-muted-foreground">
-            <span className="font-semibold text-foreground">{calls.length}</span> attempt{calls.length > 1 ? 's' : ''}
-            {' · '}
-            <span className="font-semibold text-emerald-700 dark:text-emerald-400">{talked}</span> connected
-          </p>
-        )}
-      </div>
-
-      {calls.length === 0 ? (
-        <div className="flex items-center gap-2 rounded-lg border border-dashed border-border/60 p-3 text-xs text-muted-foreground">
-          <PhoneIncoming className="h-4 w-4 opacity-50 shrink-0" />
-          No calls recorded by the dialer for this lead yet.
-        </div>
-      ) : (
-        <div className="space-y-1.5">
-          {calls.map((c) => (
-            <CallRow key={c.id} leadId={leadId} call={c} />
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
 function CallsTab({ leadId }: { leadId: string }) {
   const qc = useQueryClient();
   const { toast } = useToast();
@@ -1007,10 +857,6 @@ function CallsTab({ leadId }: { leadId: string }) {
         </div>
       )}
 
-      {/* Dialer call history. Feedback/follow-up history is intentionally kept
-          out of this tab; it's still on the Follow-Ups and Timeline tabs. */}
-      <DialerCallHistory leadId={leadId} />
-
       <div>
         {/* Past schedules */}
         {past.length > 0 && (
@@ -1043,10 +889,6 @@ export function LeadDetailDrawer({ leadId, onClose, canSubmitFeedback = false }:
 
   const { toast: drawerToast } = useToast();
 
-  // Click-to-call, shared with the lead profile page — see useClickToCall. The
-  // button flips to Disconnect so the agent can drop the line from the CRM.
-  const { onCall, isDialing, isHangingUp, call, hangup } = useClickToCall(leadId);
-
   // Open on Overview for every lead. The drawer is not remounted between leads —
   // only its `leadId` prop changes — so without this the tab the agent last used
   // carries over, and clicking a fresh lead lands them on Timeline or Calls
@@ -1054,19 +896,6 @@ export function LeadDetailDrawer({ leadId, onClose, canSubmitFeedback = false }:
   useEffect(() => {
     setActiveTab('overview');
   }, [leadId]);
-
-  /**
-   * Hanging up drops the agent straight into Follow-Ups.
-   *
-   * The moment a call ends is exactly when the feedback needs writing, and
-   * making the agent find the tab themselves is the wasted step. Switched on
-   * click rather than when the dialer answers: the call is over either way, and
-   * waiting on a round trip just to move a tab would feel broken.
-   */
-  function hangUpAndLogFeedback() {
-    setActiveTab('followups');
-    hangup();
-  }
 
   const { data: lead, isLoading } = useQuery<LeadDetail>({
     queryKey: ['lead-detail', leadId],
@@ -1225,32 +1054,6 @@ export function LeadDetailDrawer({ leadId, onClose, canSubmitFeedback = false }:
                           <Mail className="h-3.5 w-3.5" /> Email
                         </a>
                       </Button>
-                      {onCall ? (
-                        <Button
-                          size="sm"
-                          variant="destructive"
-                          className="gap-1.5 text-xs"
-                          onClick={hangUpAndLogFeedback}
-                          disabled={isHangingUp}
-                        >
-                          {isHangingUp
-                            ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                            : <PhoneOff className="h-3.5 w-3.5" />}
-                          Disconnect Call
-                        </Button>
-                      ) : (
-                        <Button
-                          size="sm"
-                          className="gap-1.5 bg-[#0e4164] hover:bg-[#0c3755] text-white text-xs"
-                          onClick={call}
-                          disabled={isDialing}
-                        >
-                          {isDialing
-                            ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                            : <Phone className="h-3.5 w-3.5" />}
-                          {isDialing ? 'Connecting…' : 'Call'}
-                        </Button>
-                      )}
                       <WhatsAppButton
                         leadId={lead.id}
                         phone={lead.phone}
@@ -1284,7 +1087,7 @@ export function LeadDetailDrawer({ leadId, onClose, canSubmitFeedback = false }:
                       <InfoRow label="Course" value={lead.course} />
                       <InfoRow label="State / City" value={[lead.state, lead.city].filter(Boolean).join(' / ')} />
                       <InfoRow label="Zone" value={lead.leadZone} />
-                      <InfoRow label="Lead Code" value={lead.campaign} />
+                      <InfoRow label="Lead Source" value={lead.campaign} />
                       {showLeadType && <InfoRow label="Lead Type" value={lead.leadType} />}
                       <InfoRow
                         label="Date Added"

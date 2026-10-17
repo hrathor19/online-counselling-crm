@@ -10,7 +10,7 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import {
-  Users, TrendingUp, PhoneCall, UserCheck, UserX, Clock,
+  Users, TrendingUp, PhoneCall, UserCheck, UserX,
   MessageSquare, Download, RefreshCw, BarChart3, Filter,
   ChevronUp, ChevronDown, ChevronsUpDown, ArrowUpRight,
   Receipt, GraduationCap,
@@ -29,7 +29,6 @@ interface KPIs {
   interested: number; conversionRate: number;
   applications: number; admissions: number;
   connectedLeads: number; hotLeads: number; warmLeads: number;
-  talktimeMinutes: number;
 }
 interface FeedbackItem { label: string; count: number }
 interface TimelineItem { date: string; count: number }
@@ -352,7 +351,6 @@ export default function PerformancePage() {
       ['Untouched Leads', kpis.untouched],
       ['Hot Leads', kpis.hotLeads],
       ['Warm Leads', kpis.warmLeads],
-      ['Talktime (min)', kpis.talktimeMinutes],
       ['—', ''],
       ['Pending', kpis.pendingApproval], ['Approved', kpis.approved],
       ['Unassigned', kpis.unassigned], ['Called', kpis.called],
@@ -469,14 +467,6 @@ export default function PerformancePage() {
           title="Leads whose latest feedback is Warm"
           icon={<TrendingUp className="h-4 w-4 text-amber-600 dark:text-amber-400" />} color="bg-amber-100 dark:bg-amber-900/40" />
 
-        {/* Minutes, not leads — and counted by when the CALL happened, not when
-            the lead was created, which is what every other card here means by
-            the date range. Drills into Reports, where talk time is per agent. */}
-        <KpiCard loading={isLoading} label="Talktime" value={kpis?.talktimeMinutes ?? 0} suffix=" min"
-          sub="calls placed in this range"
-          href="/dashboard/super-admin/reports"
-          title="Total talk time from the dialer. Opens Reports, which breaks it down per agent."
-          icon={<Clock className="h-4 w-4 text-sky-600 dark:text-sky-400" />} color="bg-sky-100 dark:bg-sky-900/40" />
       </div>
 
       {/* ── Uploads + Feedback mix ─────────────────────────────────────────── */}

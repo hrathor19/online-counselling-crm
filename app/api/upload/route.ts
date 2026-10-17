@@ -7,8 +7,8 @@ import { callingTypeForIngest } from '@/lib/lead-code';
 import { leadCodeError } from '@/lib/csv-parser';
 import { planPriorityAssignments } from '@/lib/priority-assignment';
 import { hasPermission } from '@/lib/permissions';
-import { buildDropdownValidationSets, isAllowedDropdownValue } from '@/lib/dropdown-validation';
-import { Feature, DropdownType } from '@prisma/client';
+import { buildDropdownValidationSets } from '@/lib/dropdown-validation';
+import { Feature } from '@prisma/client';
 
 const leadSchema = z.object({
   name:        z.string().min(1),
@@ -54,12 +54,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
     }
 
-    const parseDate = (s: string | null | undefined): Date | null => {
-      if (!s?.trim()) return null;
-      const d = new Date(s.trim());
-      return isNaN(d.getTime()) ? null : d;
-    };
-
     const { fileName, leads, errorRecords: clientErrorCount } = parsed.data;
 
     // Reject if batch exceeds the configured per-upload limit
@@ -73,70 +67,61 @@ export async function POST(req: NextRequest) {
     const incomingEmails = leads.map((l) => l.email.trim().toLowerCase());
 
     // ── Fetch all active dropdown options for validation ─────────────────────
-    // leadCodeCallingTypeMap: lead code → Data Calling Type. A mapped code wins
+    // leadCodeCallingTypeMap: lead source → Data Calling Type. A mapped value wins
     // over whatever the CSV carried, exactly as it does when the mapping is
     // saved. It comes off the same prebuilt object as the college attributes,
     // so there is one loader rather than two that could drift.
-    const { sets: dropdownSets, collegeIdMap, collegeAttributeMap, leadCodeCallingTypeMap } =
+    const { collegeNameMap, collegeAttributeMap, leadCodeCallingTypeMap } =
       await buildDropdownValidationSets();
-    const allowed = (t: DropdownType, v: string | null | undefined) =>
-      isAllowedDropdownValue({ sets: dropdownSets, collegeIdMap, collegeAttributeMap, leadCodeCallingTypeMap }, t, v);
 
     // ── Validate each lead against dropdown options ───────────────────────────
     type LeadInput = typeof leads[number];
-    type ResolvedLead = LeadInput & { _resolvedCollege?: string; _kappCollegeId?: string };
+    type ResolvedLead = LeadInput & { _resolvedCollege?: string };
     const validLeads:   ResolvedLead[] = [];
     const invalidLeads: { row: number; email: string; errors: string[] }[] = [];
 
     leads.forEach((lead, i) => {
       const errs: string[] = [];
 
-      // College: CSV value is a KAPP College ID — look up the college name
+      // College: the CSV carries the college NAME. Matched case- and
+      // whitespace-insensitively against the curated list, and stored with the
+      // list's spelling so one college never arrives under three variants.
       let resolvedCollege: string | undefined;
-      let kappCollegeId:   string | undefined;
-      const rawCollegeId = lead.college?.trim() ?? '';
+      const rawCollege = lead.college?.trim() ?? '';
 
-      if (collegeIdMap.size > 0) {
-        if (rawCollegeId) {
-          resolvedCollege = collegeIdMap.get(rawCollegeId.toLowerCase());
+      if (collegeNameMap.size > 0) {
+        if (rawCollege) {
+          resolvedCollege = collegeNameMap.get(rawCollege.toLowerCase());
           if (!resolvedCollege) {
-            errs.push(`college "${rawCollegeId}" is not a valid KAPP College ID`);
-          } else {
-            kappCollegeId = rawCollegeId; // preserve original ID from CSV
+            errs.push(`college "${rawCollege}" is not in the college list`);
           }
         }
-      } else if (rawCollegeId) {
-        // No college map configured — store raw value as-is
-        resolvedCollege = rawCollegeId;
+      } else if (rawCollege) {
+        // No colleges configured yet — store the raw value as-is
+        resolvedCollege = rawCollege;
       }
 
       /**
        * Lead code. Enforced here and not only in the browser, because the
        * browser check can be bypassed by posting to this route directly — and
        * because a malformed code silently costs the lead its Data Calling Type,
-       * which is decided by matching the code against the Manage Lead Codes
+       * which is decided by matching the lead source against the configured
        * mapping. A code with a slash in it matches nothing and lands on NA.
        */
       const leadCodeMsg = leadCodeError(lead.campaign);
       if (leadCodeMsg) errs.push(leadCodeMsg);
 
-      if (!allowed(DropdownType.LEAD_TYPE,          lead.lead_type))         errs.push(`lead_type "${lead.lead_type}" is not in the allowed list`);
-      if (!allowed(DropdownType.LEAD_ORIGIN,        lead.lead_origin))       errs.push(`lead_origin "${lead.lead_origin}" is not in the allowed list`);
-      // lead_zone and deal_type are no longer taken from the CSV — they come
-      // from the college's own configuration (see the lead build below), so
-      // there is nothing to validate here.
-      if (!allowed(DropdownType.LEAD_CONFIRMATION,  lead.lead_confirmation)) errs.push(`lead_confirmation "${lead.lead_confirmation}" is not in the allowed list`);
-      if (!allowed(DropdownType.LEAD_STAGE,         lead.lead_stage))        errs.push(`lead_stage "${lead.lead_stage}" is not in the allowed list`);
-      if (!allowed(DropdownType.LEAD_VERIFICATION,  lead.lead_verification)) errs.push(`lead_verification "${lead.lead_verification}" is not in the allowed list`);
-      // data_calling_type is still accepted in the file but no longer checked or
-      // used: the lead code decides it. Rejecting a row over a column that has
-      // no effect would fail uploads for nothing.
+      // The upload template is Name, Email, Phone, City, State, Course,
+      // College and Lead Source — nothing else is read from the file. Zone and
+      // Deal Type come from the college's own configuration, and Data Calling
+      // Type from the lead-source mapping, so none of them is validated here.
+      // A file still carrying older columns uploads fine; they are ignored.
 
 
       if (errs.length > 0) {
         invalidLeads.push({ row: i + 2, email: lead.email, errors: errs }); // row +2: header=1, 0-indexed
       } else {
-        validLeads.push({ ...lead, _resolvedCollege: resolvedCollege, _kappCollegeId: kappCollegeId });
+        validLeads.push({ ...lead, _resolvedCollege: resolvedCollege });
       }
     });
 
@@ -213,7 +198,7 @@ export async function POST(req: NextRequest) {
          *
          * Planned for the whole file in one go — one cursor write instead of
          * one per lead — and worked out from the calling type the lead will
-         * actually be stored with, which for a mapped lead code is the mapping's
+         * actually be stored with, which for a mapped lead source is the mapping's
          * value rather than anything the CSV said.
          *
          * These rows are created PENDING, so an auto-assigned lead is not
@@ -238,25 +223,19 @@ export async function POST(req: NextRequest) {
             state:      lead.state?.trim()      || null,
             course:     lead.course?.trim()     || null,
             college:       lead.college?.trim()    || null,
-            kappCollegeId: lead._kappCollegeId   || null,
             campaign:      lead.campaign?.trim()  || null,
-            leadType:   lead.lead_type?.trim()  || null,
-            leadOrigin: lead.lead_origin?.trim()|| null,
             // Zone and Deal Type are properties of the college, configured in
             // Manage Colleges, so they are copied from there rather than read
             // from the CSV. A college with neither configured leaves them null.
-            leadZone:   collegeAttributeMap.get((lead._kappCollegeId ?? '').toLowerCase())?.zone     ?? null,
+            leadZone:   collegeAttributeMap.get((lead.college ?? '').trim().toLowerCase())?.zone     ?? null,
             primaryApplicationConfirm: 'No',
             primaryAdmissionConfirm:   'No',
-            leadConfirmation:          lead.lead_confirmation?.trim()           || null,
-            leadStage:                 lead.lead_stage?.trim()                  || null,
-            leadVerification:          lead.lead_verification?.trim()           || null,
             // Lead code decides this, not the CSV column: an unmapped code
             // lands as "NA" so it is visibly waiting to be mapped.
             dataCallingType: callingTypes[i],
             ...(priorityAgents[i] ? { assignedToId: priorityAgents[i]!, assignedAt } : {}),
-            dealType:   collegeAttributeMap.get((lead._kappCollegeId ?? '').toLowerCase())?.dealType ?? null,
-            uploadedAt:                parseDate(lead.created_at),
+            dealType:   collegeAttributeMap.get((lead.college ?? '').trim().toLowerCase())?.dealType ?? null,
+            uploadedAt:                new Date(),
             status:      'PENDING',
             uploadedById: session.user.id,
             batchId:      batch.id,

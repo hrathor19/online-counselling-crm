@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth';
 import { z } from 'zod';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
+import { freshLeadBlockReason, freshLeadIds } from '@/lib/attendance-policy';
 import { hasPermission, logActivity } from '@/lib/permissions';
 import { Feature } from '@prisma/client';
 
@@ -51,6 +52,23 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (!lead) return NextResponse.json({ error: 'Lead not found' }, { status: 404 });
   if (lead.status !== 'APPROVED') {
     return NextResponse.json({ error: 'Only approved leads can be assigned' }, { status: 400 });
+  }
+
+  /**
+   * A late agent may only be handed leads that already carry feedback.
+   *
+   * `resetFeedbacks` is what makes this more than a lookup: archiving the
+   * history turns the lead fresh on arrival, so a reset reassignment is a
+   * fresh lead however much feedback it had a moment ago.
+   */
+  const willBeFresh = resetFeedbacks
+    ? true
+    : (await freshLeadIds(prisma, [params.id])).has(params.id);
+  if (willBeFresh) {
+    const blocked = await freshLeadBlockReason(prisma, agentId);
+    if (blocked) {
+      return NextResponse.json({ success: false, error: blocked, code: 'LATE_CHECK_IN' }, { status: 409 });
+    }
   }
 
   const updated = await prisma.$transaction(async (tx) => {

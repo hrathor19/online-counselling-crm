@@ -4,6 +4,13 @@ import Papa from 'papaparse';
 // permission rule that drives it live in lib/data-masking.ts.
 export { maskEmail, maskPhone } from './data-masking';
 
+/**
+ * The upload columns, and the only ones read from a file.
+ *
+ * A file carrying extra columns still uploads — Papa hands them over and they
+ * are simply ignored rather than rejected, so a sheet written for an older
+ * version of this template is not a failed upload.
+ */
 export interface LeadCSVRow {
   name: string;
   email: string;
@@ -13,15 +20,6 @@ export interface LeadCSVRow {
   course?: string;
   college?: string;
   campaign?: string;
-  lead_type?: string;
-  lead_origin?: string;
-  lead_zone?: string;
-  lead_confirmation?: string;
-  lead_stage?: string;
-  lead_verification?: string;
-  data_calling_type?: string;
-  deal_type?: string;
-  created_at?: string;
 }
 
 export interface RowValidationResult {
@@ -35,7 +33,7 @@ export interface ValidationMaps {
   cityMap: Map<string, string>;         // lowercase → canonical
   stateMap: Map<string, string>;
   courseMap: Map<string, string>;
-  kappCollegeIdMap: Map<string, string>; // kappCollegeId.lower → college name
+  collegeNameMap: Map<string, string>;   // college name.lower → canonical name
 }
 
 // ─── CSV parsing ──────────────────────────────────────────────────────────────
@@ -47,10 +45,12 @@ export function parseCSV(file: File): Promise<LeadCSVRow[]> {
       skipEmptyLines: true,
       transformHeader: (header) => {
         const normalized = header.trim().toLowerCase().replace(/\s+/g, '_');
-        // The UI label is "Lead Code" (renamed from "Campaign"), but the
-        // underlying field stays `campaign` everywhere downstream — alias
-        // both the new and legacy header spellings onto it.
-        if (normalized === 'lead_code') return 'campaign';
+        // The UI label is "Lead Source" (previously "Lead Code", and
+        // "Campaign" before that), but the underlying field stays `campaign`
+        // everywhere downstream — alias every header spelling onto it, including
+        // the one-word "LeadSource", so a file written for any previous version
+        // or either spelling still uploads.
+        if (normalized === 'lead_source' || normalized === 'leadsource' || normalized === 'lead_code') return 'campaign';
         return normalized;
       },
       complete: (results) => {
@@ -68,9 +68,9 @@ export function parseCSV(file: File): Promise<LeadCSVRow[]> {
 // ─── Lead code ────────────────────────────────────────────────────────────────
 
 /**
- * A lead code is letters, digits and underscore. Nothing else.
+ * A lead source is letters, digits and underscore. Nothing else.
  *
- * The column is labelled "Lead Code" in the UI and carried as `campaign`
+ * The column is labelled "Lead Source" in the UI and carried as `campaign`
  * everywhere downstream. It went unvalidated until now, and the result is that
  * 4,895 of the 42,631 leads on production hold a code that is really a tracking
  * string rather than a code — `kollegeapply/bm101/API` on 1,618 leads,
@@ -78,8 +78,8 @@ export function parseCSV(file: File): Promise<LeadCSVRow[]> {
  * UTM query string attached. 380 distinct malformed values in total, every one
  * of them from a CSV upload rather than the API.
  *
- * That matters beyond tidiness: the lead code is what decides a lead's Data
- * Calling Type through the Manage Lead Codes mapping, and a code with a slash
+ * That matters beyond tidiness: the lead source is what decides a lead's Data
+ * Calling Type through the lead-source mapping, and a value with a slash
  * in it matches no mapping, so those leads fall through to `NA` and are never
  * prioritised correctly.
  *
@@ -91,7 +91,7 @@ export function parseCSV(file: File): Promise<LeadCSVRow[]> {
 export const LEAD_CODE_PATTERN = /^[A-Za-z0-9_]+$/;
 
 /**
- * The error for one lead code, or null when it is acceptable.
+ * The error for one lead source, or null when it is acceptable.
  *
  * A blank code is allowed: plenty of legitimate rows carry none, and making it
  * mandatory would fail uploads that work today. It is the *malformed* code that
@@ -108,7 +108,7 @@ export function leadCodeError(value: string | null | undefined): string | null {
     .map((c) => (c === ' ' ? 'space' : c))
     .join(' ');
   const shown = code.length > 60 ? `${code.slice(0, 57)}...` : code;
-  return `Invalid lead code "${shown}" — only letters, digits and underscore (_) are allowed`
+  return `Invalid lead source "${shown}" — only letters, digits and underscore (_) are allowed`
     + (offenders ? ` (found: ${offenders})` : '');
 }
 
@@ -210,17 +210,20 @@ export function validateRowDetailed(
   if (leadCodeMsg) errors.push(leadCodeMsg);
   normalized.campaign = leadCode;
 
-  // ── College (required — value in CSV is a KAPP College ID) ──
+  // ── College (required — the CSV carries the college NAME) ──
   const college = row.college?.trim() ?? '';
   if (!college) {
     errors.push('College is required');
     normalized.college = '';
-  } else if (maps && maps.kappCollegeIdMap.size > 0) {
-    const resolvedName = maps.kappCollegeIdMap.get(college.toLowerCase());
-    if (!resolvedName) {
-      errors.push(`College "${college}" is not a valid KAPP College ID`);
+  } else if (maps && maps.collegeNameMap.size > 0) {
+    const canonical = maps.collegeNameMap.get(college.toLowerCase());
+    if (!canonical) {
+      errors.push(`College "${college}" is not in the college list`);
+      normalized.college = college;
     } else {
-      normalized.college = college; // keep the KAPP ID as-is; backend resolves to name
+      // Store the curated spelling, so one college cannot arrive under
+      // three different capitalisations.
+      normalized.college = canonical;
     }
   } else {
     normalized.college = college;
@@ -237,9 +240,7 @@ export function buildResultCSV(
 ): string {
   const headers = [
     'row', 'name', 'email', 'phone', 'city', 'state',
-    'course', 'college', 'lead_code', 'lead_type', 'lead_origin', 'lead_zone',
-    'lead_confirmation', 'lead_stage', 'lead_verification', 'data_calling_type', 'deal_type',
-    'created_at',
+    'course', 'college', 'lead_source',
     'status', 'issues',
   ];
 
@@ -269,15 +270,6 @@ export function buildResultCSV(
       csvEscape(d.course ?? ''),
       csvEscape(d.college ?? ''),
       csvEscape(d.campaign ?? ''),
-      csvEscape(d.lead_type ?? ''),
-      csvEscape(d.lead_origin ?? ''),
-      csvEscape(d.lead_zone ?? ''),
-      csvEscape(d.lead_confirmation ?? ''),
-      csvEscape(d.lead_stage ?? ''),
-      csvEscape(d.lead_verification ?? ''),
-      csvEscape(d.data_calling_type ?? ''),
-      csvEscape(d.deal_type ?? ''),
-      csvEscape(d.created_at ?? ''),
       status,
       csvEscape(issues),
     ].join(',');

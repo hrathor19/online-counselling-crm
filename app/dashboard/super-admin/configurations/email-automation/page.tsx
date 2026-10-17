@@ -64,7 +64,7 @@ const REPORT_LABEL: Record<Rule['reportType'], string> = {
   WELCOME: 'Welcome email — login details and links',
   FEEDBACK_SUMMARY: 'Feedback summary — leads by outcome, with the university count',
   AGENT_WISE: 'Agent wise report — the KPI scoreboard, every agent in one file',
-  OVERALL_CALLING: 'Overall Calling Report — dialled, connected and talktime vs the daily mandate',
+  OVERALL_CALLING: 'Overall Calling Report — dialled and connected vs the daily mandate',
   ALL_REPORTS: 'All Reports — every table above, in one email',
   COLLEGE_WISE: 'University / College wise — the same leads split by college',
 };

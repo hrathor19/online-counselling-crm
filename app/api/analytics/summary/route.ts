@@ -106,7 +106,6 @@ export async function GET(req: NextRequest) {
       connectedLeads,
       hotLeads,
       warmLeads,
-      talktimeSeconds,
     ] = await Promise.all([
       // These three carry teamFilter too. Without it a Team Lead saw org-wide
       // Uploaded/Pending/Disapproved next to their own team's Approved and
@@ -200,18 +199,6 @@ export async function GET(req: NextRequest) {
       warmOptionId
         ? prisma.lead.count({ where: { ...approvedBase, currentFeedbackOptionId: warmOptionId } })
         : Promise.resolve(0),
-
-      // Talk time is the one figure the window means something different for:
-      // every other card counts leads CREATED in the range, but a call has its
-      // own clock, so this is calls PLACED in the range. Labelled on the card.
-      prisma.callLog.aggregate({
-        where: {
-          talkTimeSeconds: { gt: 0 },
-          ...(effectiveTeamId ? { agent: { teamId: effectiveTeamId } } : {}),
-          ...(from && to ? { startedAt: { gte: istStartOfDay(from), lte: istEndOfDay(to) } } : {}),
-        },
-        _sum: { talkTimeSeconds: true },
-      }),
     ]);
 
     // Timeline: last 60 days (or within date range) — daily lead creation counts
@@ -278,8 +265,6 @@ export async function GET(req: NextRequest) {
         connectedLeads,
         hotLeads,
         warmLeads,
-        // Whole minutes, floored: a card reading "60 min" should not be 59m31s.
-        talktimeMinutes: Math.floor((talktimeSeconds._sum.talkTimeSeconds ?? 0) / 60),
       },
       // Everything the cards need to build an All Leads link that lands on
       // exactly the rows the number counted.

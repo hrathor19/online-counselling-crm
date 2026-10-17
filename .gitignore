@@ -28,6 +28,10 @@ yarn-error.log*
 # local env files
 .env*.local
 .env
+# ...and any hand-made copy of them. A ".bak" taken before an edit holds the
+# same live secrets as the original and must never reach a remote.
+.env*.bak
+*.env.bak
 
 # vercel
 .vercel

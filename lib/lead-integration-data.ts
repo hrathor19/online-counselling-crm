@@ -16,7 +16,6 @@ export type LeadForTemplate = Lead & {
     name: string;
     email: string;
     employeeCode: string | null;
-    dialshreeId: string | null;
   } | null;
 };
 
@@ -66,7 +65,6 @@ export async function buildLeadTemplateData(lead: LeadForTemplate): Promise<Reco
     assignedTo_employeeCode: lead.assignedTo?.employeeCode ?? null,
     assignedTo_id: lead.assignedTo?.id ?? null,
     assignedTo_email: lead.assignedTo?.email ?? null,
-    assignedTo_dialshreeId: lead.assignedTo?.dialshreeId ?? null,
 
     profile_budget: profile?.budget ?? null,
     profile_courseType: profile?.courseType ?? null,

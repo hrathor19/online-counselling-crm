@@ -14,6 +14,10 @@ export const PIN_GATED_ACTIONS = {
   // Silently redirects incoming leads to a chosen set of agents. Nobody sees it
   // happen from the outside, which is exactly why it wants the same gate.
   PRIORITY_ASSIGNMENT: 'PRIORITY_ASSIGNMENT',
+  // Moves leads off one counsellor and onto another on a schedule. Same
+  // reasoning as Priority Assignment: it reshapes who works what, and from
+  // the outside it just looks like the leads moved on their own.
+  LEAD_REASSIGNMENT: 'LEAD_REASSIGNMENT',
 } as const;
 
 export type PinGatedAction = (typeof PIN_GATED_ACTIONS)[keyof typeof PIN_GATED_ACTIONS];

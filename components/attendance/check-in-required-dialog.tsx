@@ -8,6 +8,7 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/use-toast';
+import { getCurrentCoords } from '@/lib/geolocation';
 import { onAttendanceRequired } from '@/lib/attendance-required';
 
 /**
@@ -32,7 +33,12 @@ export function CheckInRequiredDialog() {
 
   const punchIn = useMutation({
     mutationFn: async () => {
-      const r = await fetch('/api/attendance/punch-in', { method: 'POST' });
+      const coords = await getCurrentCoords();
+      const r = await fetch('/api/attendance/punch-in', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(coords ? { latitude: coords.latitude, longitude: coords.longitude } : {}),
+      });
       const json = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(json?.error ?? 'Could not check you in');
       return json;

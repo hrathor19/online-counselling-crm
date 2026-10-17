@@ -15,7 +15,7 @@ interface Row {
   id: string; employeeCode: string | null; name: string;
   tl: string | null; manager: string | null; zone: string | null; language: string | null;
   joiningDate: string | null; dialedCalls: number; connectedCalls: number; notConnectedCalls: number;
-  applications: number; admissions: number; avgTalktimeMin: number | null;
+  applications: number; admissions: number;
 }
 
 interface ReportResponse {
@@ -132,14 +132,13 @@ export default function ReportsPage() {
     const head = [
       'Agent ID', 'Agent Name', 'Agent TL', 'Agent Manager', 'Joining Date', 'Agent Zone', 'Agent Language',
       'Total Dialed Calls', 'Total Connected Calls', 'Total Not Connected Calls',
-      'Total Application', 'Total Admission', 'Average Talktime (min)',
+      'Total Application', 'Total Admission',
     ];
     const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
     const body = rows.map((r) => [
       // ISO in the export so it sorts and filters properly in Excel.
       r.employeeCode ?? '', r.name, r.tl ?? '', r.manager ?? '', r.joiningDate ?? '', r.zone ?? '', r.language ?? '',
       r.dialedCalls, r.connectedCalls, r.notConnectedCalls, r.applications, r.admissions,
-      r.avgTalktimeMin ?? '',
     ].map(esc).join(','));
     const blob = new Blob([[head.map(esc).join(','), ...body].join('\n')], { type: 'text/csv' });
     const a = document.createElement('a');
@@ -325,18 +324,18 @@ export default function ReportsPage() {
           <section className="space-y-2">
             <h2 className="text-sm font-semibold">{view === 'agent' ? 'My activity' : 'Agent detail'}</h2>
             <div className="overflow-x-auto rounded-xl border border-border/60">
-              <table className="w-full min-w-[1100px] text-xs">
+              <table className="w-full min-w-[1000px] text-xs">
                 <thead className="bg-muted/60">
                   <tr>
                     {['Agent ID', 'Agent Name', 'Agent TL', 'Agent Manager', 'Joining Date', 'Zone', 'Language',
-                      'Dialed', 'Connected', 'Not Connected', 'Application', 'Admission', 'Avg Talktime'].map((h, i) => (
+                      'Dialed', 'Connected', 'Not Connected', 'Application', 'Admission'].map((h, i) => (
                       <th key={h} className={cn('px-3 py-2.5 font-semibold whitespace-nowrap text-muted-foreground', i > 6 ? 'text-center' : 'text-left')}>{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
                   {rows.length === 0 ? (
-                    <tr><td colSpan={13} className="px-4 py-10 text-center text-muted-foreground">No agents match these filters.</td></tr>
+                    <tr><td colSpan={12} className="px-4 py-10 text-center text-muted-foreground">No agents match these filters.</td></tr>
                   ) : rows.map((r) => (
                     <tr key={r.id} className="border-t border-border/50 hover:bg-muted/30">
                       <td className="px-3 py-2.5 font-mono text-[10px] text-muted-foreground whitespace-nowrap">{r.employeeCode ?? '—'}</td>
@@ -357,9 +356,6 @@ export default function ReportsPage() {
                       <td className="px-3 py-2.5 text-center tabular-nums text-red-500">{r.notConnectedCalls}</td>
                       <td className="px-3 py-2.5 text-center tabular-nums">{r.applications}</td>
                       <td className="px-3 py-2.5 text-center tabular-nums">{r.admissions}</td>
-                      <td className="px-3 py-2.5 text-center text-muted-foreground/60">
-                        {r.avgTalktimeMin === null ? 'no data' : r.avgTalktimeMin}
-                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -367,7 +363,6 @@ export default function ReportsPage() {
             </div>
             <p className="text-[11px] text-muted-foreground">
               <Info className="mr-1 inline h-3 w-3" />
-              Average Talktime needs the dialer’s call records, which are not yet integrated.
               Applications and Admissions are approved receipts, counted by date paid.
             </p>
           </section>

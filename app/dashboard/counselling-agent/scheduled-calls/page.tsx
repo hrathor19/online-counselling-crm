@@ -1,8 +1,6 @@
 'use client';
 
 import { useState, useMemo } from 'react';
-import { MissedCallsTable } from '@/components/calls/missed-calls-table';
-import { useSearchParams } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useSession } from 'next-auth/react';
 import {
@@ -51,10 +49,8 @@ interface ApiResponse {
 // 'OVERDUE' is not a ScheduledCallStatus — it is PENDING whose slot has passed.
 // Kept as a tab value here and translated to status=PENDING&timing=overdue when
 // querying, so the tab strip can present it alongside the real statuses.
-// 'MISSED' is not a ScheduledCallStatus either — it is a dialer record, not
-// something the CRM scheduled. It rides on the same tab strip because a missed
 // call is the same job as a scheduled one: somebody to ring back.
-type StatusFilter = 'PENDING' | 'OVERDUE' | 'DONE' | 'CANCELLED' | 'all' | 'MISSED';
+type StatusFilter = 'PENDING' | 'OVERDUE' | 'DONE' | 'CANCELLED' | 'all';
 type ViewMode = 'list' | 'calendar';
 
 const WEEK_DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -319,12 +315,7 @@ export default function ScheduledCallsPage() {
   const [viewMode, setViewMode] = useState<ViewMode>('list');
   const qc = useQueryClient();
   const { toast } = useToast();
-  // ?tab=missed lets the missed-call notification land on the right tab rather
-  // than on Pending, leaving the reader to hunt for what they were told about.
-  const searchParams = useSearchParams();
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>(
-    searchParams.get('tab') === 'missed' ? 'MISSED' : 'PENDING',
-  );
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('PENDING');
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(25);
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
@@ -339,7 +330,6 @@ export default function ScheduledCallsPage() {
     { label: 'Done',      value: 'DONE' },
     { label: 'Cancelled', value: 'CANCELLED' },
     { label: 'All',       value: 'all' },
-    { label: 'Missed',    value: 'MISSED' },
   ];
 
   // Calendar fetches the whole month with status=all, no pagination
@@ -508,20 +498,6 @@ export default function ScheduledCallsPage() {
             )}
           </div>
 
-          {/* Missed calls come from the dialer, not from ScheduledCall, so the
-              tab swaps the whole table rather than re-filtering this one. */}
-          {statusFilter === 'MISSED' ? (
-            <div className="flex-1 overflow-auto">
-              <MissedCallsTable
-                page={page}
-                limit={limit}
-                onPageChange={setPage}
-                onLimitChange={(l) => { setLimit(l); setPage(1); }}
-                onLeadClick={setSelectedLeadId}
-              />
-            </div>
-          ) : (
-          <>
           {/* Table */}
           <div className="flex-1 overflow-auto rounded-lg border border-border/60">
             <table className="w-full min-w-[900px] text-xs">
@@ -681,8 +657,6 @@ export default function ScheduledCallsPage() {
               disabled={isFetching}
               className="shrink-0"
             />
-          )}
-          </>
           )}
         </>
       )}

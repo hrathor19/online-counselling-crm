@@ -6,8 +6,7 @@ import { runDueEmailRules } from '@/lib/email-runner';
 /**
  * The scheduler's entry point, called by system cron.
  *
- * No session: cron is not a browser. Authenticated by a shared secret, the same
- * pattern the DialShree webhook uses.
+ * No session: cron is not a browser. Authenticated by a shared secret.
  *
  * Safe to call often. Each rule records the period it last completed, so running
  * every five minutes sends one email per period, and a run missed while the box

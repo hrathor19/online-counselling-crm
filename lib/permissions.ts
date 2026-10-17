@@ -146,21 +146,13 @@ import type { ActivityAction, Prisma } from '@prisma/client';
 /**
  * Actions the activity log deliberately does not record.
  *
- * `CALL_INITIATED` and `CALL_HANGUP` were 65% of every row on production and
- * duplicate `CallLog`, which the dialer's post-call webhook fills in with far
- * more detail — talk time, recording, disposition. Logging them twice bought
- * nothing and made the table two-thirds noise.
- *
  * `FEEDBACK_SUBMITTED` is here for completeness: nothing has ever written it,
  * and feedback is already a first-class `LeadFeedback` row.
  *
  * Filtered centrally rather than by deleting the call sites, so a future caller
- * cannot quietly reintroduce the volume. The enum values stay — historical rows
- * still reference them and must keep rendering.
+ * cannot quietly reintroduce the volume.
  */
 const UNLOGGED_ACTIONS: ReadonlySet<ActivityAction> = new Set([
-  'CALL_INITIATED',
-  'CALL_HANGUP',
   'FEEDBACK_SUBMITTED',
 ] as ActivityAction[]);
 

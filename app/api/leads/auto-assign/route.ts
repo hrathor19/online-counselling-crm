@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth';
 import { z } from 'zod';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
+import { freshLeadIds, onTimeAgentIds } from '@/lib/attendance-policy';
 import { hasPermission, logActivity } from '@/lib/permissions';
 import { Feature } from '@prisma/client';
 
@@ -63,10 +64,43 @@ export async function POST(req: NextRequest) {
   // Sort by current load (fewest leads first) for fair round-robin
   const sorted = [...agents].sort((a, b) => a._count.assignedLeads - b._count.assignedLeads);
 
+  /**
+   * Fresh leads only go to agents who checked in before the cutoff.
+   *
+   * Partitioned rather than refused outright, because this route spreads many
+   * leads over many agents: a single late agent should narrow who receives the
+   * fresh ones, not fail the whole distribution. Leads that already carry
+   * feedback still go to everyone, late or not.
+   *
+   * `resetFeedbacks` archives the history, so every lead in the batch arrives
+   * fresh — the whole batch is then subject to the rule.
+   */
+  const onTime = await onTimeAgentIds(prisma);
+  const freshIds = resetFeedbacks ? new Set(leadIds) : await freshLeadIds(prisma, leadIds);
+  const freshAgents = onTime ? sorted.filter((a) => onTime.has(a.id)) : sorted;
+
+  if (freshIds.size > 0 && freshAgents.length === 0) {
+    return NextResponse.json({
+      success: false,
+      code: 'NO_ON_TIME_AGENTS',
+      error:
+        `${freshIds.size} of the ${leadIds.length} selected lead${freshIds.size === 1 ? ' has' : 's have'} no feedback yet, ` +
+        'and no agent in this list checked in before today\'s cutoff. Leads with feedback can still be assigned.',
+    }, { status: 409 });
+  }
+
+  // Two independent rotations so one pool running short does not skew the
+  // other: fresh leads over the on-time agents, the rest over everyone.
   const assignments: { leadId: string; agentId: string }[] = [];
-  leadIds.forEach((leadId, i) => {
-    assignments.push({ leadId, agentId: sorted[i % sorted.length].id });
-  });
+  let freshTurn = 0;
+  let anyTurn = 0;
+  for (const leadId of leadIds) {
+    if (freshIds.has(leadId)) {
+      assignments.push({ leadId, agentId: freshAgents[freshTurn++ % freshAgents.length].id });
+    } else {
+      assignments.push({ leadId, agentId: sorted[anyTurn++ % sorted.length].id });
+    }
+  }
 
   // Fetch current assignee chain so we can shift it
   const currentLeads = await prisma.lead.findMany({

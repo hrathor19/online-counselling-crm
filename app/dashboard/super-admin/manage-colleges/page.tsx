@@ -6,9 +6,8 @@ export default function Page() {
       <DropdownOptionsManager
         type="COLLEGE"
         title="Manage Colleges"
-        description="Manage colleges. Each college requires a unique KAPP College ID. CSV uploads must use the KAPP College ID in the college field — it will be resolved to the college name automatically. Zone and Deal Type set here are applied to every lead ingested for the college."
+        description="Manage colleges. CSV uploads and the API match on the college name, ignoring capitalisation and surrounding spaces, and the lead is saved with the spelling set here. Zone and Deal Type set here are applied to every lead ingested for the college."
         placeholder="e.g. IIT Delhi"
-        idField={{ label: 'KAPP College ID', placeholder: 'e.g. KA001' }}
         collegeAttributes
       />
     </div>

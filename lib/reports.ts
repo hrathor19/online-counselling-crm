@@ -70,12 +70,6 @@ export interface AgentReportRow {
   notConnectedCalls: number;
   applications: number;
   admissions: number;
-  /**
-   * Average minutes per answered call, from the dialer's post-call webhook.
-   * Still null when the dialer has reported nothing for this agent in the
-   * window — a gap, not a zero.
-   */
-  avgTalktimeMin: number | null;
 }
 
 /**
@@ -134,7 +128,7 @@ export async function buildAgentReport(
   const catId = (n: string) => categories.find((c) => c.name.toLowerCase() === n.toLowerCase())?.id;
   const notConnectedId = catId('Not Connected');
 
-  const [callCounts, receipts, talktime] = await Promise.all([
+  const [callCounts, receipts] = await Promise.all([
     /**
      * Dialed / Connected / Not Connected, counted as LEADS rather than as
      * follow-ups.
@@ -195,42 +189,23 @@ export async function buildAgentReport(
         GROUP BY 1
       `,
     ),
-    // Receipts belong to the agent the lead is assigned to, counted by the date
-    // the student paid rather than when it was approved — approval can lag by
-    // days and would otherwise land the credit in the wrong period.
+    // Receipts belong to the agent who UPLOADED them, counted by the date the
+    // student paid rather than when it was approved — approval can lag by days
+    // and would otherwise land the credit in the wrong period.
+    //
+    // Deliberately not the lead's current assignee: that moves the credit every
+    // time a lead is reassigned, which is routine, and rewrites past periods.
+    // Kept in step with RECEIPT_COUNT in lib/kpi.ts so the Caller-wise report
+    // and the KPI screen cannot disagree about the same agent.
     db.leadReceipt.findMany({
       where: {
         status: 'APPROVED',
         ...(period ? { paidDate: period } : {}),
-        lead: { assignedToId: { in: ids } },
+        uploadedById: { in: ids },
       },
-      select: { type: true, lead: { select: { assignedToId: true } } },
-    }),
-    // Talk time comes from the dialer's post-call webhook. Only calls the dialer
-    // itself marked CONNECTED are averaged — it reports a few seconds of "talk
-    // time" on calls that never got through, so averaging everything would drag
-    // each agent toward zero and make a busy day look like a quiet one.
-    db.callLog.groupBy({
-      by: ['agentId'],
-      where: {
-        agentId: { in: ids },
-        connected: true,
-        talkTimeSeconds: { gt: 0 },
-        ...(period ? { startedAt: period } : {}),
-      },
-      _avg: { talkTimeSeconds: true },
+      select: { type: true, uploadedById: true },
     }),
   ]);
-
-  // One decimal is enough to compare agents without implying second-level
-  // precision the dialer's MM:SS strings do not carry.
-  const talktimeBy = new Map<string, number>();
-  for (const row of talktime as { agentId: string | null; _avg: { talkTimeSeconds: number | null } }[]) {
-    const seconds = row._avg.talkTimeSeconds;
-    if (row.agentId && seconds != null) {
-      talktimeBy.set(row.agentId, Math.round((seconds / 60) * 10) / 10);
-    }
-  }
 
   // count() comes back as bigint over the wire; Number is safe here because a
   // lead count cannot approach 2^53.
@@ -241,7 +216,7 @@ export async function buildAgentReport(
   const appsBy = new Map<string, number>();
   const admsBy = new Map<string, number>();
   for (const r of receipts) {
-    const aid = r.lead.assignedToId;
+    const aid = r.uploadedById;
     if (!aid) continue;
     const m = r.type === 'APPLICATION' ? appsBy : admsBy;
     m.set(aid, (m.get(aid) ?? 0) + 1);
@@ -264,7 +239,6 @@ export async function buildAgentReport(
       notConnectedCalls: notConnectedBy.get(a.id) ?? 0,
       applications: appsBy.get(a.id) ?? 0,
       admissions: admsBy.get(a.id) ?? 0,
-      avgTalktimeMin: talktimeBy.get(a.id) ?? null,
     };
   });
 
@@ -641,10 +615,8 @@ const REAL_SHIFT_ACTIVE_SECONDS = 60 * 60;
 /**
  * IST days on which each agent actually did calling work in the window.
  *
- * A day counts if the agent logged a follow-up OR the dialer recorded a call
- * they actually made or took. Both signals are needed: an agent can have days
- * with call logs and no follow-ups, because dialling a lead and leaving no
- * feedback is a real and common thing.
+ * A day counts if the agent logged a follow-up, or checked in for a real
+ * shift's worth of active time.
  *
  * ─── A check-in counts only if it was a real shift ──────────────────────────
  *
@@ -658,9 +630,8 @@ const REAL_SHIFT_ACTIVE_SECONDS = 60 * 60;
  * single check-in-with-no-work day on this database — all 7 of them — is a
  * sub-10-minute login from attendance's first ten days: people opening the new
  * feature to see what it did. Median active time 1 minute, maximum 7. Counting
- * those as working days took Kamaleswar Ghosh's Overall achievement from 91% to
- * 68% on the strength of a five-minute session on 5 August, which is a day he
- * never worked.
+ * those as working days took an agent's Overall achievement from 91% to 68% on
+ * the strength of a five-minute session, which is a day they never worked.
  *
  * So a check-in has to carry a real shift's worth of active time. The gap is
  * wide and unambiguous: days with actual work run to a median of 353 active
@@ -668,35 +639,10 @@ const REAL_SHIFT_ACTIVE_SECONDS = 60 * 60;
  * sits far above the noise and far below any real shift.
  *
  * Note this gates the check-in signal ONLY. A genuine working day with no
- * recorded heartbeat — the CRM tab closed while the agent works the dialer —
- * still counts through the work branches, which is why days with real work show
- * a minimum of 0 active minutes and are unaffected by it.
+ * recorded heartbeat still counts through the follow-up branch, which is why
+ * days with real work show a minimum of 0 active minutes and are unaffected.
  *
- * ─── Unanswered inbound calls are NOT work ──────────────────────────────────
- *
- * A missed call is a phone ringing at an empty desk, and the first version of
- * this counted it as a day worked. On 4 Sept Shivam Rajput was absent and never
- * checked in, yet the Caller-wise report gave him a full 300-call target while
- * the other two absentees correctly got zero. The difference was 22 CallLog
- * rows — every one `callType = 'inbound'`, campaign `sticky100205`, zero
- * talktime, zero answered. They were calls that arrived FOR his sticky seat
- * while he was away, not calls he made.
- *
- * So an inbound call only counts when it was actually answered. Across the
- * whole database every one of the 1,887 inbound rows has zero talktime — in
- * this dialer, inbound means missed — but the talktime clause stays so that an
- * answered inbound would count if that ever changes. Outbound always counts,
- * answered or not: placing the call is the work.
- *
- * This replaced a version that counted Attendance check-ins ALONE, which cannot
- * carry the column or the denominator on its own. Check-in only started on 4 Aug
- * 2026 and was skipped on most days until the attendance gate shipped: Yash
- * Sharma has 10 check-ins against 25 days of recorded calling. Dividing a
- * lifetime of work by 10 days of mandate scores him at 167%; dividing by the
- * 25 days he actually worked scores him at 61%. Going forward the gate makes
- * the two converge, since an agent can no longer call without checking in.
- *
- * UNION, not UNION ALL: an agent normally has both a follow-up and a call log
+ * UNION, not UNION ALL: an agent normally has both a follow-up and a check-in
  * on the same day, and that is one day worked, not two.
  */
 export async function activeDaysByAgent(
@@ -716,17 +662,6 @@ export async function activeDaysByAgent(
       WHERE f."agentId" IN (${Prisma.join(userIds)})
         ${from ? Prisma.sql`AND f."createdAt" >= ${toUtcSqlTimestamp(from)}::timestamp` : Prisma.empty}
         ${to ? Prisma.sql`AND f."createdAt" <= ${toUtcSqlTimestamp(to)}::timestamp` : Prisma.empty}
-      UNION
-      SELECT c."agentId" AS "agentId",
-             to_char(c."startedAt" + interval '5 hours 30 minutes', 'YYYY-MM-DD') AS "day"
-      FROM "CallLog" c
-      WHERE c."agentId" IN (${Prisma.join(userIds)})
-        AND (
-          lower(coalesce(c."callType", '')) <> 'inbound'
-          OR coalesce(c."talkTimeSeconds", 0) > 0
-        )
-        ${from ? Prisma.sql`AND c."startedAt" >= ${toUtcSqlTimestamp(from)}::timestamp` : Prisma.empty}
-        ${to ? Prisma.sql`AND c."startedAt" <= ${toUtcSqlTimestamp(to)}::timestamp` : Prisma.empty}
       UNION
       -- Attendance.date is already the IST day key as a plain string, so it
       -- joins the other two branches with no timezone arithmetic at all.
@@ -751,14 +686,12 @@ export interface CallingRow {
   joiningDate: string | null;
   /**
    * Days this agent actually did calling work inside the window — a follow-up
-   * or a dialer call, not calendar days and NOT check-ins. See
-   * `activeDaysByAgent` for why check-ins cannot carry this column.
+   * logged or a real-shift check-in, not calendar days. See
+   * `activeDaysByAgent` for why check-ins alone cannot carry this column.
    */
   workingDays: number;
   dialed: number;
   connected: number;
-  /** Total dialer minutes, the same figure the Talktime KPI reports. */
-  talktimeMin: number;
 }
 
 export interface CallingBlock {
@@ -798,13 +731,13 @@ export interface CallingBlock {
    * same arithmetic, just with a different number of days per person.
    */
   agentDays: number;
-  totals: { dialed: number; connected: number; talktimeMin: number };
+  totals: { dialed: number; connected: number };
 }
 
 export interface OverallCallingReport {
   dateLabel: string;
   /** Per-day expectations, read from the KPI Targets page's daily targets. */
-  mandates: { dialed: number | null; connected: number | null; talktime: number | null };
+  mandates: { dialed: number | null; connected: number | null };
   blocks: CallingBlock[];
   // No grand total. That row added Daily + Weekly + Monthly, windows which
   // overlap, so it was never a count of distinct work — Himanshu dropped it.
@@ -816,11 +749,7 @@ export interface OverallCallingReport {
  *
  * Dialled and Connected come from `buildAgentReport`, so they carry the same
  * leads-not-follow-ups counting and the same exhaustive Connected split as
- * every other report here. Talktime is the dialer's own total, matching the
- * Talktime KPI's `CALL_TALKTIME_MINUTES` rather than the *average* per call
- * that the agent tables show — a mandate of "180 mins" is plainly a daily
- * total, and a second definition of talktime is how two reports start
- * disagreeing.
+ * every other report here.
  *
  * The mandates are read from KPI Targets rather than stored again here. One
  * place to change an expectation; change it there and this report follows.
@@ -843,9 +772,6 @@ export async function buildOverallCallingReport(
   const mandates = {
     dialed: byName(/dial+ed/i) ?? byName(/dial/i),
     connected: byName(/connect/i),
-    // Matched by source first: it is unambiguous where a name is not.
-    talktime:
-      defs.find((d) => d.source === 'CALL_TALKTIME_MINUTES')?.targets[0]?.target ?? byName(/talk/i),
   };
 
   /**
@@ -883,21 +809,6 @@ export async function buildOverallCallingReport(
       db, agentWhere, s.from ? 'DATEWISE' : 'OVERALL', s.from, s.to, now,
     );
     const window = reportRange(s.from ? 'DATEWISE' : 'OVERALL', s.from, s.to, now);
-    const talk =
-      ids.length === 0
-        ? []
-        : await db.callLog.groupBy({
-            by: ['agentId'],
-            where: { agentId: { in: ids }, ...(within(window.from, window.to) ? { startedAt: within(window.from, window.to) } : {}) },
-            _sum: { talkTimeSeconds: true },
-          });
-    const talkBy = new Map<string, number>();
-    for (const t of talk as { agentId: string | null; _sum: { talkTimeSeconds: number | null } }[]) {
-      // Floored, exactly as the Talktime KPI does it: a 180-minute mandate
-      // should not be met by 179m40s.
-      if (t.agentId) talkBy.set(t.agentId, Math.floor((t._sum.talkTimeSeconds ?? 0) / 60));
-    }
-
     // Days each agent actually worked in this window. Overall passes a null
     // window, so it counts every day they have ever recorded work on — which
     // is exactly the day count its percentages divide by.
@@ -910,7 +821,6 @@ export async function buildOverallCallingReport(
       workingDays: workedBy.get(r.id) ?? 0,
       dialed: r.dialedCalls,
       connected: r.connectedCalls,
-      talktimeMin: talkBy.get(r.id) ?? 0,
     }));
     const activeEmployees = rows.filter((r) => r.dialed > 0).length;
     blocks.push({
@@ -927,9 +837,8 @@ export async function buildOverallCallingReport(
         (acc, r) => ({
           dialed: acc.dialed + r.dialed,
           connected: acc.connected + r.connected,
-          talktimeMin: acc.talktimeMin + r.talktimeMin,
         }),
-        { dialed: 0, connected: 0, talktimeMin: 0 },
+        { dialed: 0, connected: 0 },
       ),
     });
   }

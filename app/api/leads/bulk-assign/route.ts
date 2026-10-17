@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth';
 import { z } from 'zod';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
+import { freshLeadBlockReason, freshLeadIds } from '@/lib/attendance-policy';
 import { hasPermission, logActivity } from '@/lib/permissions';
 import { Feature } from '@prisma/client';
 
@@ -37,6 +38,26 @@ export async function POST(req: NextRequest) {
       },
     });
     if (!agent) return NextResponse.json({ success: false, error: 'Agent not in your team', code: 'FORBIDDEN' }, { status: 403 });
+  }
+
+  // A late agent takes only leads that already carry feedback. Refused as a
+  // whole rather than silently assigning the subset that qualifies: the caller
+  // picked these leads deliberately, and a partial success they did not ask
+  // for is harder to notice than a refusal.
+  const blocked = await freshLeadBlockReason(prisma, agentId);
+  if (blocked) {
+    const fresh = await freshLeadIds(prisma, leadIds);
+    if (fresh.size > 0) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: `${blocked} ${fresh.size} of the ${leadIds.length} selected lead${leadIds.length === 1 ? ' has' : 's have'} no feedback yet.`,
+          code: 'LATE_CHECK_IN',
+          freshCount: fresh.size,
+        },
+        { status: 409 },
+      );
+    }
   }
 
   const agent = await prisma.user.findUnique({ where: { id: agentId }, select: { teamId: true, name: true } });

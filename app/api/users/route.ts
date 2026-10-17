@@ -35,9 +35,6 @@ const createUserSchema = z.object({
   managerId: z.string().optional().nullable(),
   managedById: z.string().optional().nullable(),
   joiningDate: z.coerce.date().optional(),
-  // DialShree dialer seat. Trimmed to null when blank so the unique index
-  // does not treat several empty strings as a collision.
-  dialshreeId: z.string().trim().max(64).optional().nullable(),
   // Reporting attributes — see the notes on the fields in schema.prisma.
   zone:     z.string().trim().max(40).optional().nullable(),
   language: z.string().trim().max(80).optional().nullable(),
@@ -93,7 +90,7 @@ export async function GET(req: NextRequest) {
     },
     select: {
       id: true, name: true, email: true, role: true, workType: true, isActive: true, status: true,
-      employeeCode: true, phone: true, joiningDate: true, createdAt: true, dialshreeId: true, zone: true, language: true,
+      employeeCode: true, phone: true, joiningDate: true, createdAt: true, zone: true, language: true,
       managedById: true, managerId: true, teamId: true, operationsGroupId: true,
       managedBy: { select: { id: true, name: true } },
       team: { select: { id: true, name: true } },
@@ -137,9 +134,6 @@ export async function POST(req: NextRequest) {
     const u = await tx.user.create({
       data: {
         ...data,
-        // Blank input must land as NULL: `dialshreeId` is unique, and several
-        // users saved with '' would collide on the second one.
-        dialshreeId: data.dialshreeId?.trim() || null,
         zone:     data.zone?.trim() || null,
         language: data.language?.trim() || null,
         managerId,
@@ -203,18 +197,6 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({ ...user, tempPassword: password }, { status: 201 });
   } catch (error) {
-    // A clashing dialer seat is an admin mistake to correct, not a server
-    // fault — name the field so they know what to change.
-    if (
-      typeof error === 'object' && error !== null &&
-      (error as { code?: string }).code === 'P2002' &&
-      String((error as { meta?: { target?: unknown } }).meta?.target ?? '').includes('dialshreeId')
-    ) {
-      return NextResponse.json(
-        { success: false, error: 'That DialShree ID is already mapped to another user.', code: 'DUPLICATE_DIALSHREE_ID' },
-        { status: 409 }
-      );
-    }
     console.error('[users POST]', error);
     return NextResponse.json({ success: false, error: 'Internal server error' }, { status: 500 });
   }

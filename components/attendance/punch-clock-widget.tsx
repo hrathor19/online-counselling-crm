@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Clock, Coffee, LogIn, LogOut, Play, AlertCircle, Utensils, Timer } from 'lucide-react';
+import { getCurrentCoords } from '@/lib/geolocation';
 import { cn } from '@/lib/utils';
 
 const IDLE_THRESHOLD_MS = 60_000; // must match lib/attendance.ts IDLE_THRESHOLD_SECONDS
@@ -187,8 +188,11 @@ export function PunchClockWidget() {
     return () => window.removeEventListener('pagehide', onPageHide);
   }, [isWorking]);
 
-  function action(url: string) {
-    return fetch(url, { method: 'POST' }).then(async (r) => {
+  function action(url: string, body?: unknown) {
+    return fetch(url, {
+      method: 'POST',
+      ...(body === undefined ? {} : { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
+    }).then(async (r) => {
       const json = await r.json();
       if (!r.ok) throw new Error(typeof json.error === 'string' ? json.error : 'Action failed');
       return json as AttendanceSummary;
@@ -196,7 +200,14 @@ export function PunchClockWidget() {
   }
 
   const punchInMutation = useMutation({
-    mutationFn: () => action('/api/attendance/punch-in'),
+    // Location is attached when the browser offers it. The server decides
+    // whether it was actually needed — see lib/geolocation.ts.
+    mutationFn: async () => {
+      const coords = await getCurrentCoords();
+      return action('/api/attendance/punch-in', coords
+        ? { latitude: coords.latitude, longitude: coords.longitude }
+        : {});
+    },
     onSuccess: (data) => qc.setQueryData(['attendance-me'], data),
   });
   const punchOutMutation = useMutation({

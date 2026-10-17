@@ -7,7 +7,7 @@ import {
   Loader2, GraduationCap, Landmark, Wallet, Home, BarChart3,
   FileText, Check, ChevronDown, ChevronUp, Search, X, CheckCircle2, Handshake, CreditCard,
   School, Building2, RefreshCw, Receipt, ExternalLink, UserPlus, Users, Phone,
-  Clock3, XCircle, Webhook, Send, AlertTriangle, PhoneOff,
+  Clock3, XCircle, Webhook, Send, AlertTriangle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/components/ui/use-toast';
@@ -15,7 +15,6 @@ import { ReceiptUploadDialog, type ReceiptKind } from '@/components/leads/receip
 import { computeProfilingScore, profilingScoreTone } from '@/lib/lead-profiling';
 import { WhatsAppButton } from '@/components/shared/whatsapp-button';
 import { ApplicationFormButton } from '@/components/shared/application-form-button';
-import { useClickToCall } from '@/lib/hooks/use-click-to-call';
 
 const STEP_BY_NAME: Record<string, number> = {
   'Basic Info': 1,
@@ -487,8 +486,6 @@ export function LeadProfilePage({ leadId, agentName }: { leadId: string; agentNa
   const { toast } = useToast();
   const router = useRouter();
 
-  // Same dialer behaviour as the All Leads drawer — see useClickToCall.
-  const { onCall, isDialing, isHangingUp, call, hangup } = useClickToCall(leadId);
 
   const profilingScore = useMemo(() => (lead ? computeProfilingScore(lead) : null), [lead]);
 
@@ -876,34 +873,6 @@ export function LeadProfilePage({ leadId, agentName }: { leadId: string; agentNa
             </div>
 
             <div className="flex flex-wrap gap-2">
-              {/* Click-to-call through the dialer, identical to the All Leads
-                  drawer — it rings the agent's own seat and bridges the lead in,
-                  rather than handing the number to the device's phone app. */}
-              {onCall ? (
-                <button
-                  type="button"
-                  onClick={hangup}
-                  disabled={isHangingUp}
-                  className="inline-flex h-9 items-center gap-1.5 rounded-md bg-destructive px-3 text-xs font-medium text-destructive-foreground shadow-sm transition-colors hover:bg-destructive/90 disabled:opacity-60"
-                >
-                  {isHangingUp
-                    ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    : <PhoneOff className="h-3.5 w-3.5" />}
-                  Disconnect Call
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={call}
-                  disabled={isDialing}
-                  className="inline-flex h-9 items-center gap-1.5 rounded-md bg-[#0e4164] px-3 text-xs font-medium text-white shadow-sm transition-colors hover:bg-[#0c3755] disabled:opacity-60"
-                >
-                  {isDialing
-                    ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    : <Phone className="h-3.5 w-3.5" />}
-                  {isDialing ? 'Connecting…' : 'Call'}
-                </button>
-              )}
               <WhatsAppButton leadId={lead.id} phone={lead.phone} leadName={lead.name} course={lead.course} />
               <ApplicationFormButton college={lead.college} />
             </div>

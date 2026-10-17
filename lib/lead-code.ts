@@ -3,7 +3,7 @@ import { Prisma, PrismaClient } from '@prisma/client';
 /**
  * Lead code → Data Calling Type.
  *
- * A lead code is the `campaign` field on a Lead — "Lead Code" is what the UI
+ * A lead source is the `campaign` field on a Lead — "Lead Source" is what the UI
  * calls it. Rather than setting a Data Calling Type per lead at ingestion, an
  * admin maps the code once here and every lead carrying it takes that value.
  *
@@ -20,7 +20,7 @@ import { Prisma, PrismaClient } from '@prisma/client';
  */
 
 /**
- * What a lead shows when its lead code is not in the LeadCode List.
+ * What a lead shows when its lead source has no Data Calling Type mapped.
  *
  * Deliberately a plain value written onto the lead rather than a blank: an
  * empty Data Calling Type is indistinguishable from "nobody has filled this in
@@ -36,7 +36,7 @@ export const UNMAPPED_CALLING_TYPE = 'NA';
 /**
  * The Data Calling Type an incoming lead should be stored with.
  *
- * The mapping is the only source: a lead code that is not mapped yields "NA"
+ * The mapping is the only source: a lead source that is not mapped yields "NA"
  * rather than falling back to whatever the CSV or API payload carried. That is
  * the whole point of the list — one place decides, and an unmapped code is
  * visibly unmapped instead of silently keeping a value nobody chose.
@@ -64,7 +64,7 @@ export function leadCodeWhere(code: string): Prisma.LeadWhereInput {
   return { campaign: { equals: code.trim(), mode: 'insensitive' } };
 }
 
-/** The Data Calling Type for a lead code, or null when it is not mapped. */
+/** The Data Calling Type for a lead source, or null when it is not mapped. */
 export async function callingTypeForLeadCode(
   db: PrismaClient | Prisma.TransactionClient,
   code: string | null | undefined,

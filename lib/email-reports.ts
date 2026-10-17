@@ -34,7 +34,6 @@ const INK = '#000000';      // all table text
 const HEAD_BG = '#e9c46a';  // header row
 const STRIPE = '#fdf4e3';   // every other body row
 const MUTED = '#555555';    // subtitles and footers only, never table data
-const LINK = '#0b4a8f';     // links stay link-coloured; that is usability, not theme
 // The Overall Calling Report's own bands, from the sheet it replaces.
 const MANDATE_BG = '#ffff66';  // the date / mandate strip
 const MATRIX_BG = '#f0a23c';   // the column headers
@@ -195,8 +194,6 @@ export interface AgentBlock {
 }
 
 const num = (v: number | null | undefined) => (v === null || v === undefined ? '—' : String(v));
-const talk = (r: AgentReportRow | null) =>
-  !r || r.avgTalktimeMin === null ? '—' : String(r.avgTalktimeMin);
 const scoreText = (f: PeriodFigures) =>
   f.maxScore === 0 || f.score === null ? '—' : `${f.score} / ${f.maxScore}`;
 
@@ -255,7 +252,7 @@ export async function buildAgentBlocks(
 
 // ─── Rendering ────────────────────────────────────────────────────────────────
 
-const COLUMNS = ['Period', 'Dialed', 'Connected', 'Not connected', 'Applications', 'Admissions', 'Avg talktime', 'Score'];
+const COLUMNS = ['Period', 'Dialed', 'Connected', 'Not connected', 'Applications', 'Admissions', 'Score'];
 
 function headerRow(): string {
   return `<tr>${COLUMNS.map((h) => cell(h, { head: true })).join('')}</tr>`;
@@ -285,7 +282,6 @@ function agentSection(block: AgentBlock, isFirst: boolean): string {
       cell(num(r?.notConnectedCalls)),
       cell(num(r?.applications)),
       cell(num(r?.admissions)),
-      cell(talk(r)),
       cell(scoreText(f), { bold: true }),
     ].join('')}</tr>`;
   }).join('');
@@ -325,7 +321,7 @@ function toCsv(blocks: AgentBlock[]): string {
   const head = [
     'Agent', 'Employee Code', 'TL', 'Joining Date', 'Zone', 'Language',
     'Period', 'From', 'To', 'Dialed', 'Connected', 'Not Connected',
-    'Applications', 'Admissions', 'Avg Talktime (min)', 'Score', 'Max Score',
+    'Applications', 'Admissions', 'Score', 'Max Score',
   ];
   const lines = blocks.flatMap((b) =>
     b.periods.map((f) =>
@@ -333,7 +329,7 @@ function toCsv(blocks: AgentBlock[]): string {
         b.name, b.employeeCode ?? '', b.tl ?? '', b.joiningDate ?? '', b.zone ?? '', b.language ?? '',
         f.window.label, f.window.from, f.window.to,
         f.row?.dialedCalls ?? '', f.row?.connectedCalls ?? '', f.row?.notConnectedCalls ?? '',
-        f.row?.applications ?? '', f.row?.admissions ?? '', f.row?.avgTalktimeMin ?? '',
+        f.row?.applications ?? '', f.row?.admissions ?? '',
         f.score ?? '', f.maxScore || '',
       ].map(q).join(','),
     ),
@@ -429,8 +425,8 @@ const AGENT_MAIL_EXCLUDED_KPIS = [/paid\s*app/i];
  *
  * Only KPIs with a daily target appear. Every row here is Achieved vs Target,
  * so a KPI with nothing to hit has nothing to say — which is why Not connected,
- * Applications, Admissions and Avg talktime are no longer shown: none of them
- * is a KPI with a daily target on this install.
+ * Applications and Admissions are no longer shown: none of them is a KPI with
+ * a daily target on this install.
  *
  * Six `computeKpiActual` calls per agent, against the twenty-four the four-window
  * version made — the scoreboard was recomputed for every window.
@@ -566,9 +562,6 @@ ${body}
 
 // ─── Welcome email ────────────────────────────────────────────────────────────
 
-/** Where an agent answers calls. Fixed by the provider, not per-tenant. */
-const DIALSHREE_AGENT_URL = 'https://dialer5.elisiontec.com/agent/index.php';
-
 export interface WelcomeRecipient {
   name: string;
   employeeCode: string | null;
@@ -609,14 +602,6 @@ ${credentials}
 
 <p style="font-size:13px;margin:0 0 10px">${linkButton(crmUrl, 'Open the CRM')}</p>
 
-<p style="font-size:13px;margin:16px 0 6px"><strong>DialShree (for calling)</strong></p>
-<p style="font-size:13px;margin:0 0 6px">
-Sign in here to take and make calls:<br>
-<a href="${DIALSHREE_AGENT_URL}" style="color:${LINK}">${DIALSHREE_AGENT_URL}</a>
-</p>
-<p style="font-size:12px;color:${MUTED};margin:0 0 16px">
-Get your username and password from your Manager.
-</p>
 
 <p style="font-size:12px;color:${MUTED};margin:0">
 ${user.password
@@ -644,7 +629,7 @@ export const REPORT_TYPE_LABEL: Record<EmailReportType, string> = {
   FEEDBACK_SUMMARY: 'Feedback summary (leads by outcome)',
   COLLEGE_WISE: 'University / College wise (leads by college)',
   AGENT_WISE: 'Agent wise (KPI scoreboard, every agent in one file)',
-  OVERALL_CALLING: 'Overall calling (dialled, connected and talktime vs the daily mandate)',
+  OVERALL_CALLING: 'Overall calling (dialled and connected vs the daily mandate)',
   ALL_REPORTS: 'All reports (every table above, in one email)',
 };
 
@@ -1028,7 +1013,7 @@ const AGENT_WISE_FOOTER =
 // ─── Overall Calling Report ──────────────────────────────────────────────────
 
 /**
- * Dialled, Connected and Talktime for every agent across four windows — today,
+ * Dialled and Connected for every agent across four windows — today,
  * this week so far, this month so far, and all time — each against the daily
  * mandate scaled by the days the window covers.
  *
@@ -1080,23 +1065,21 @@ export async function buildOverallCallingEmail(
   /**
    * A row's eight figures, plus the score they average to.
    *
-   * Overall Scoring is the mean of the three achievement percentages, exactly
-   * as Himanshu specified: (Dialled % + Connected % + Talktime %) / 3. It needs
-   * all three to mean anything, so a missing mandate — or an agent with no days
-   * worked at all — leaves it and the Grade blank rather than dividing two
-   * numbers by three.
+   * Overall Scoring is the mean of the achievement percentages:
+   * (Dialled % + Connected %) / 2. It needs both to mean anything, so a missing
+   * mandate — or an agent with no days worked at all — leaves it and the Grade
+   * blank rather than scoring on one number.
    */
   const line = (
-    v: { dialed: number; connected: number; talktimeMin: number },
+    v: { dialed: number; connected: number },
     agentDays: number | null,
   ): { cells: (string | number)[]; overall: number | null } => {
     const d = pctNum(v.dialed, M.dialed, agentDays);
     const c = pctNum(v.connected, M.connected, agentDays);
-    const tt = pctNum(v.talktimeMin, M.talktime, agentDays);
-    const overall = d !== null && c !== null && tt !== null ? Math.round((d + c + tt) / 3) : null;
+    const overall = d !== null && c !== null ? Math.round((d + c) / 2) : null;
     return {
       cells: [
-        v.dialed, fmt(d), v.connected, fmt(c), v.talktimeMin, fmt(tt),
+        v.dialed, fmt(d), v.connected, fmt(c),
         fmt(overall), gradeFor(overall),
       ],
       overall,
@@ -1114,7 +1097,7 @@ export async function buildOverallCallingEmail(
    * colour that means "Unsatisfactory" is no use invisible on black.
    */
   const metrics = (
-    v: { dialed: number; connected: number; talktimeMin: number },
+    v: { dialed: number; connected: number },
     agentDays: number | null,
     row: Parameters<typeof cellBox>[1] = {},
     /** Total rows stay solid black end to end — a band colour there reads as a
@@ -1163,12 +1146,12 @@ export async function buildOverallCallingEmail(
   // table spans its own width rather than being padded to match the other,
   // which left two empty columns sitting in the summary.
   const SUMMARY_COLS = ['Matrix', 'No of Active Employee', 'Dialled Calls', 'Achieved %',
-    'Connected Calls', 'Achieved %', 'Talktime', 'Achieved %', 'Overall Scoring', 'Grade'];
+    'Connected Calls', 'Achieved %', 'Overall Scoring', 'Grade'];
   const DETAIL_COLS = ['Matrix', 'Employee Name', 'Working Days', 'Date of Joining',
-    'Dialled Calls', 'Achieved %', 'Connected Calls', 'Achieved %', 'Talktime', 'Achieved %',
+    'Dialled Calls', 'Achieved %', 'Connected Calls', 'Achieved %',
     'Overall Scoring', 'Grade'];
-  const COLS = DETAIL_COLS.length;      // 12 — the detail table's banner span
-  const SUM_COLS = SUMMARY_COLS.length; // 10 — the summary's own
+  const COLS = DETAIL_COLS.length;      // 10 — the detail table's banner span
+  const SUM_COLS = SUMMARY_COLS.length; // 8 — the summary's own
 
   // The roll-up management reads first: one row per window, with the active
   // headcount next to the figures so the percentage explains itself.
@@ -1192,7 +1175,6 @@ ${r.blocks.map((b) => `<tr>${
     cellBox(esc(r.dateLabel), { tight: true, bold: true, bg: MANDATE_BG, span: 3 })}${
     cellBox(esc(mandateText('Mandate', M.dialed)), { tight: true, bold: true, bg: MANDATE_BG, span: 2 })}${
     cellBox(esc(mandateText('Connected Mandate', M.connected)), { tight: true, bold: true, bg: MANDATE_BG, span: 2 })}${
-    cellBox(esc(mandateText('Talktime Mandate', M.talktime, ' Mins')), { tight: true, bold: true, bg: MANDATE_BG, span: 2 })}${
     cellBox('Scoring', { tight: true, bold: true, bg: MANDATE_BG, span: 2 })}</tr>
 <tr>${DETAIL_COLS.map((h) => cellBox(esc(h), { tight: true, bold: true, bg: MATRIX_BG })).join('')}</tr>
 ${blockRows}
@@ -1213,8 +1195,7 @@ ${blockRows}
     // over the pair of columns it actually governs.
     ['Date', r.dateLabel, '', '',
       mandateText('Mandate', M.dialed), '',
-      mandateText('Connected Mandate', M.connected), '',
-      mandateText('Talktime Mandate', M.talktime, ' Mins'), '', 'Scoring', ''],
+      mandateText('Connected Mandate', M.connected), '', 'Scoring', ''],
     DETAIL_COLS,
     ...r.blocks.flatMap((b) => [
       ...b.rows.map((row) => [
@@ -1251,8 +1232,7 @@ ${blockRows}
 const OVERALL_CALLING_FOOTER =
   'Sent automatically by the Counselling CRM. All dates are IST. Dialled and Connected count ' +
   'leads worked, once each, under their latest follow-up — the same rule the other reports use. ' +
-  'Talktime is the dialer\'s total minutes, the figure the Talktime KPI reports, not the average ' +
-  'per call. Mandates are the daily targets set on KPI Targets. An agent row is measured against ' +
+  'Mandates are the daily targets set on KPI Targets. An agent row is measured against ' +
   'the mandate times the days the window covers; a floor total is measured against that times the ' +
   'number of active employees, since the mandate is per agent per day. Active means agents who ' +
   'dialled at least one lead in that window, which is the count shown in the summary. Weekly is ' +
@@ -1261,9 +1241,8 @@ const OVERALL_CALLING_FOOTER =
   'partial mandate. Overall covers all time and so has no calendar day count: each agent there is ' +
   'measured against the days they personally worked, shown in their Working Days column, and the ' +
   'Overall total against the sum of those. Working Days counts days with recorded calling work — ' +
-  'a follow-up or a dialer call — not check-ins, which were not recorded on most days before ' +
-  'check-in became compulsory. Overall Scoring is ' +
-  'the mean of the three achievement percentages and needs all three, so it is blank wherever one ' +
+  'a follow-up logged or a real-shift check-in. Overall Scoring is ' +
+  'the mean of the two achievement percentages and needs both, so it is blank wherever one ' +
   'is missing; Grade bands it — Excellent 85 and above, Very Good 70, Good 50, Needs Improvement ' +
   '30, Unsatisfactory below 30, the higher band taking each boundary.';
 

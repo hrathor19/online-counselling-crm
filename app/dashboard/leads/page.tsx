@@ -22,14 +22,13 @@ import { useToast } from '@/components/ui/use-toast';
 interface Lead {
   id: string; name: string; email: string; phone: string;
   city?: string | null; state?: string | null; course?: string | null;
-  college?: string | null; kappCollegeId?: string | null; campaign?: string | null;
+  college?: string | null; campaign?: string | null;
   /**
    * Read from the college on every request, not stored on the lead — so a
    * college marked Client today changes all of its existing leads. "NA" until
    * someone sets it in Manage Colleges.
    */
   clientType?: string | null;
-  sessionYear?: string | null;
   leadType?: string | null; leadOrigin?: string | null; leadZone?: string | null;
   primaryApplicationConfirm?: string | null; primaryAdmissionConfirm?: string | null;
   leadConfirmation?: string | null; leadStage?: string | null;
@@ -59,12 +58,8 @@ interface Lead {
 }
 
 interface FilterOptions {
-  campaigns: string[]; leadTypes: string[]; leadOrigins: string[];
-  leadZones: string[]; cities: string[]; states: string[];
+  campaigns: string[]; cities: string[]; states: string[];
   colleges: string[]; courses: string[];
-  leadConfirmations: string[]; leadVerifications: string[]; dataCallingTypes: string[];
-  primaryAppConfirms: string[]; primaryAdmConfirms: string[]; leadStages: string[];
-  dealTypes: string[]; sessionYears: string[];
 }
 
 // ─── Advanced filter definitions ─────────────────────────────────────────────
@@ -81,10 +76,7 @@ const FILTER_GROUPS: { group: string; filters: FilterDef[] }[] = [
   {
     group: 'Lead Source',
     filters: [
-      { key: 'campaign',   label: 'Lead Code'    },
-      { key: 'leadType',   label: 'Lead Type'   },
-      { key: 'leadOrigin', label: 'Lead Origin' },
-      { key: 'zone',       label: 'Zone'        },
+      { key: 'campaign',   label: 'Lead Source'  },
     ],
   },
   {
@@ -98,21 +90,7 @@ const FILTER_GROUPS: { group: string; filters: FilterDef[] }[] = [
   {
     group: 'Dates',
     filters: [
-      { key: 'createdAt', label: 'Created Date Range' },
       { key: 'updatedAt', label: 'Updated Date Range' },
-    ],
-  },
-  {
-    group: 'Lead Status',
-    filters: [
-      { key: 'primaryAppConfirm', label: 'Primary App. Confirm'  },
-      { key: 'primaryAdmConfirm', label: 'Primary Adm. Confirm'  },
-      { key: 'leadConfirmation',  label: 'Lead Confirmation'     },
-      { key: 'leadStage',         label: 'Lead Stage'            },
-      { key: 'leadVerification',  label: 'Lead Verification'     },
-      { key: 'dataCallingType',   label: 'Data Calling Type'     },
-      { key: 'dealType',          label: 'Deal Type'             },
-      { key: 'sessionYear',       label: 'Session/Year'          },
     ],
   },
 ];
@@ -127,23 +105,18 @@ interface FeedbackCategory { id: string; name: string; color: string; }
 type FeedbackMode = 'all' | 'fresh';
 type ActiveTab = FeedbackMode | string; // kept for handleTabChange compat
 
-const ZONE_DOT: Record<string, string> = {
-  North: 'bg-blue-500', South: 'bg-green-500', East: 'bg-orange-500',
-  West: 'bg-purple-500', Central: 'bg-yellow-500',
-};
-
 function displayLeadId(id: string) {
   return id;
 }
 
 // ─── Skeleton rows ────────────────────────────────────────────────────────────
 
-const SKELETON_WIDTHS = [4, 8, 20, 28, 40, 24, 16, 16, 20, 32, 16, 20, 20, 16, 24, 16, 20, 14, 24, 20, 20, 24, 24, 20, 20, 20, 28];
+const SKELETON_WIDTHS = [4, 8, 20, 28, 40, 24, 16, 16, 20, 32, 24, 20, 20, 20, 24, 24];
 
-function SkeletonRows({ hideLeadType = false }: { hideLeadType?: boolean }) {
-  // One placeholder per real column, or the loading skeleton is one cell
-  // wider than the settled table and everything shifts when data arrives.
-  const widths = hideLeadType ? SKELETON_WIDTHS.slice(0, -1) : SKELETON_WIDTHS;
+function SkeletonRows() {
+  // One placeholder per real column, or the loading skeleton is a different
+  // width from the settled table and everything shifts when data arrives.
+  const widths = SKELETON_WIDTHS;
   return (
     <>
       {Array.from({ length: 10 }).map((_, i) => (
@@ -187,8 +160,6 @@ export default function AllLeadsPage() {
     // the same way the outgoing request builds them.
     const csv = (k: string) => parseCsvFilterValues(one(k) || undefined);
     return {
-      dateFrom: one('dateFrom'),
-      dateTo: one('dateTo'),
       tlIds: many('tlId'),
       primaryAppConfirms: csv('primaryAppConfirm'),
       primaryAdmConfirms: csv('primaryAdmConfirm'),
@@ -203,29 +174,14 @@ export default function AllLeadsPage() {
   const [states,   setStates]   = useState<string[]>([]);
   const [courses,  setCourses]  = useState<string[]>([]);
   const [colleges, setColleges] = useState<string[]>([]);
-  const [dateFrom,        setDateFrom]        = useState(linked.dateFrom);
-  const [dateTo,          setDateTo]          = useState(linked.dateTo);
   const [updatedDateFrom, setUpdatedDateFrom] = useState('');
   const [updatedDateTo,   setUpdatedDateTo]   = useState('');
 
   // Advanced filters — all multi-select
   const [campaigns,    setCampaigns]    = useState<string[]>([]);
-  const [leadTypes,    setLeadTypes]    = useState<string[]>([]);
-  const [leadOrigins,  setLeadOrigins]  = useState<string[]>([]);
-  const [zones,        setZones]        = useState<string[]>([]);
   const [workType,     setWorkType]     = useState<string>('');
   const [tlIds,        setTlIds]        = useState<string[]>(linked.tlIds);
   const [agentIds,     setAgentIds]     = useState<string[]>([]);
-
-  // New advanced filter states
-  const [primaryAppConfirms,   setPrimaryAppConfirms]   = useState<string[]>(linked.primaryAppConfirms);
-  const [primaryAdmConfirms,   setPrimaryAdmConfirms]   = useState<string[]>(linked.primaryAdmConfirms);
-  const [leadConfirmations,    setLeadConfirmations]    = useState<string[]>([]);
-  const [leadStages,           setLeadStages]           = useState<string[]>([]);
-  const [leadVerifications,    setLeadVerifications]    = useState<string[]>([]);
-  const [dataCallingTypes,     setDataCallingTypes]     = useState<string[]>([]);
-  const [dealTypes,            setDealTypes]            = useState<string[]>([]);
-  const [sessionYears,         setSessionYears]         = useState<string[]>([]);
 
   // Dialog state — which filter keys are "active" (shown below basic filters)
   // Seeded so a filter arriving on the URL is visible in the Advanced panel.
@@ -233,10 +189,7 @@ export default function AllLeadsPage() {
   // a narrowed list with no way to see why, or to clear it.
   const [activeFilters,     setActiveFilters]     = useState<string[]>(() => {
     const keys: string[] = [];
-    if (linked.dateFrom || linked.dateTo) keys.push('createdAt');
     if (linked.tlIds.length) keys.push('tl');
-    if (linked.primaryAppConfirms.length) keys.push('primaryAppConfirm');
-    if (linked.primaryAdmConfirms.length) keys.push('primaryAdmConfirm');
     if (linked.feedbackOptionIds.length || linked.feedbackCategoryIds.length) keys.push('lastFeedback');
     return keys;
   });
@@ -260,13 +213,8 @@ export default function AllLeadsPage() {
 
   // Count of active filters that have a value set
   const advancedCount = [
-    campaigns.length > 0, leadTypes.length > 0, leadOrigins.length > 0,
-    zones.length > 0, !!workType, tlIds.length > 0, agentIds.length > 0,
-    !!(updatedDateFrom || updatedDateTo), !!(dateFrom || dateTo),
-    primaryAppConfirms.length > 0, primaryAdmConfirms.length > 0,
-    leadConfirmations.length > 0, leadStages.length > 0,
-    leadVerifications.length > 0, dataCallingTypes.length > 0,
-    dealTypes.length > 0, sessionYears.length > 0,
+    campaigns.length > 0, !!workType, tlIds.length > 0, agentIds.length > 0,
+    !!(updatedDateFrom || updatedDateTo),
   ].filter(Boolean).length;
 
   function openFilterDialog() {
@@ -286,22 +234,10 @@ export default function AllLeadsPage() {
     switch (key) {
       case 'lastFeedback':      applyFeedbackSelection(selectedCategoryIds, []); break;
       case 'campaign':          setCampaigns([]);            break;
-      case 'leadType':          setLeadTypes([]);            break;
-      case 'leadOrigin':        setLeadOrigins([]);          break;
-      case 'zone':              setZones([]);                break;
       case 'workType':          setWorkType('');             break;
       case 'tl':                setTlIds([]);                break;
       case 'agent':             setAgentIds([]);             break;
-      case 'createdAt':         setDateFrom(''); setDateTo(''); break;
       case 'updatedAt':         setUpdatedDateFrom(''); setUpdatedDateTo(''); break;
-      case 'primaryAppConfirm': setPrimaryAppConfirms([]);   break;
-      case 'primaryAdmConfirm': setPrimaryAdmConfirms([]);   break;
-      case 'leadConfirmation':  setLeadConfirmations([]);    break;
-      case 'leadStage':         setLeadStages([]);           break;
-      case 'leadVerification':  setLeadVerifications([]);    break;
-      case 'dataCallingType':   setDataCallingTypes([]);     break;
-      case 'dealType':          setDealTypes([]);            break;
-      case 'sessionYear':       setSessionYears([]);         break;
     }
   }
 
@@ -380,33 +316,18 @@ export default function AllLeadsPage() {
     if (states.length)    p.set('state', joinCsvFilterValues(states));
     if (courses.length)   p.set('course', joinCsvFilterValues(courses));
     if (colleges.length)  p.set('college', joinCsvFilterValues(colleges));
-    if (dateFrom)         p.set('dateFrom', dateFrom);
-    if (dateTo)           p.set('dateTo', dateTo);
     if (updatedDateFrom)  p.set('updatedFrom', updatedDateFrom);
     if (updatedDateTo)    p.set('updatedTo', updatedDateTo);
     if (campaigns.length)         p.set('campaign',          joinCsvFilterValues(campaigns));
-    if (leadTypes.length)         p.set('leadType',          joinCsvFilterValues(leadTypes));
-    if (leadOrigins.length)       p.set('leadOrigin',        joinCsvFilterValues(leadOrigins));
-    if (zones.length)             p.set('zone',              joinCsvFilterValues(zones));
     if (tlIds.length)             p.set('tlId',              tlIds.join(','));
     if (agentIds.length)          p.set('assignedToId',      agentIds.join(','));
-    if (primaryAppConfirms.length)  p.set('primaryAppConfirm',  joinCsvFilterValues(primaryAppConfirms));
-    if (primaryAdmConfirms.length)  p.set('primaryAdmConfirm',  joinCsvFilterValues(primaryAdmConfirms));
-    if (leadConfirmations.length)   p.set('leadConfirmation',    joinCsvFilterValues(leadConfirmations));
-    if (leadStages.length)          p.set('leadStage',           joinCsvFilterValues(leadStages));
-    if (leadVerifications.length)   p.set('leadVerification',    joinCsvFilterValues(leadVerifications));
-    if (dataCallingTypes.length)    p.set('dataCallingType',     joinCsvFilterValues(dataCallingTypes));
-    if (dealTypes.length)           p.set('dealType',            joinCsvFilterValues(dealTypes));
-    if (sessionYears.length)        p.set('sessionYear',         joinCsvFilterValues(sessionYears));
     return p;
   }
 
   const baseParamsDeps = [
-    search, cities, states, courses, colleges, dateFrom, dateTo,
+    search, cities, states, courses, colleges,
     updatedDateFrom, updatedDateTo,
-    campaigns, leadTypes, leadOrigins, zones, tlIds, agentIds,
-    primaryAppConfirms, primaryAdmConfirms, leadConfirmations,
-    leadStages, leadVerifications, dataCallingTypes, dealTypes, sessionYears,
+    campaigns, tlIds, agentIds,
   ];
 
   const { data: categoryCounts = {} } = useQuery<Record<string, number>>({
@@ -455,25 +376,11 @@ export default function AllLeadsPage() {
   const courseOptions           = useMemo(() => str2opt(filterOpts?.courses),           [filterOpts]);
   const collegeOptions          = useMemo(() => str2opt(filterOpts?.colleges),          [filterOpts]);
   const campaignOptions         = useMemo(() => str2opt(filterOpts?.campaigns),         [filterOpts]);
-  const leadTypeOptions         = useMemo(() => str2opt(filterOpts?.leadTypes),         [filterOpts]);
-  const leadOriginOptions       = useMemo(() => str2opt(filterOpts?.leadOrigins),       [filterOpts]);
-  const zoneOptions             = useMemo(() => str2opt(filterOpts?.leadZones?.length ? filterOpts.leadZones : ['North', 'South', 'East', 'West', 'Central']), [filterOpts]);
-  const leadConfirmationOptions = useMemo(() => str2opt(filterOpts?.leadConfirmations), [filterOpts]);
-  const leadVerificationOptions = useMemo(() => str2opt(filterOpts?.leadVerifications), [filterOpts]);
-  const dataCallingTypeOptions  = useMemo(() => str2opt(filterOpts?.dataCallingTypes),  [filterOpts]);
-  const primaryAppConfirmOpts   = useMemo(() => str2opt(filterOpts?.primaryAppConfirms ?? ['Yes', 'No']), [filterOpts]);
-  const primaryAdmConfirmOpts   = useMemo(() => str2opt(filterOpts?.primaryAdmConfirms ?? ['Yes', 'No']), [filterOpts]);
-  const leadStageOptions        = useMemo(() => str2opt(filterOpts?.leadStages),        [filterOpts]);
-  const dealTypeOptions         = useMemo(() => str2opt(filterOpts?.dealTypes),         [filterOpts]);
-  const sessionYearOptions      = useMemo(() => str2opt(filterOpts?.sessionYears),      [filterOpts]);
 
   // ── TLs / Agents ───────────────────────────────────────────────────────────
 
   const showTlFilter    = role === 'SUPER_ADMIN' || role === 'REPORTS';
   const showAgentFilter = role === 'SUPER_ADMIN' || role === 'REPORTS' || role === 'COUNSELLING_TL';
-  // Counselling Agents shouldn't see lead-source info they have no use for —
-  // keep it out of the column, the filter picker, and the filter bar itself.
-  const showLeadType    = role !== 'COUNSELLING_AGENT';
 
   const { data: tlsRaw = [] } = useQuery<{ id: string; name: string; workType: string }[]>({
     queryKey: ['tls-list'],
@@ -563,14 +470,9 @@ export default function AllLeadsPage() {
 
   function clearAll() {
     setSearch(''); setCities([]); setStates([]); setCourses([]); setColleges([]);
-    setDateFrom(''); setDateTo('');
     setUpdatedDateFrom(''); setUpdatedDateTo('');
-    setCampaigns([]); setLeadTypes([]); setLeadOrigins([]); setZones([]);
+    setCampaigns([]);
     setTlIds([]); setAgentIds([]);
-    setPrimaryAppConfirms([]); setPrimaryAdmConfirms([]);
-    setLeadConfirmations([]); setLeadStages([]);
-    setLeadVerifications([]); setDataCallingTypes([]);
-    setDealTypes([]); setSessionYears([]);
     setActiveFilters([]);
     setFeedbackMode('all'); setSelectedOptIds([]); setSelectedCategoryIds([]);
     setPage(1);
@@ -848,26 +750,8 @@ export default function AllLeadsPage() {
           )}
           {activeFilters.includes('campaign') && (
             <div className="flex flex-col gap-1">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Lead Code</span>
+              <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Lead Source</span>
               <MultiSelectFilter placeholder="All Campaigns" options={campaignOptions} selected={campaigns} onChange={(v) => filterChange(() => setCampaigns(v))} loading={optsLoading} />
-            </div>
-          )}
-          {activeFilters.includes('leadType') && showLeadType && (
-            <div className="flex flex-col gap-1">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Lead Type</span>
-              <MultiSelectFilter placeholder="All Types" options={leadTypeOptions} selected={leadTypes} onChange={(v) => filterChange(() => setLeadTypes(v))} loading={optsLoading} />
-            </div>
-          )}
-          {activeFilters.includes('leadOrigin') && (
-            <div className="flex flex-col gap-1">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Lead Origin</span>
-              <MultiSelectFilter placeholder="All Origins" options={leadOriginOptions} selected={leadOrigins} onChange={(v) => filterChange(() => setLeadOrigins(v))} loading={optsLoading} />
-            </div>
-          )}
-          {activeFilters.includes('zone') && (
-            <div className="flex flex-col gap-1">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Zone</span>
-              <MultiSelectFilter placeholder="All Zones" options={zoneOptions} selected={zones} onChange={(v) => filterChange(() => setZones(v))} loading={optsLoading} />
             </div>
           )}
           {activeFilters.includes('workType') && (
@@ -896,20 +780,6 @@ export default function AllLeadsPage() {
               <MultiSelectFilter placeholder="All Agents" options={agentOptions} selected={agentIds} onChange={(v) => filterChange(() => setAgentIds(v))} />
             </div>
           )}
-          {activeFilters.includes('createdAt') && (
-            <>
-              <div className="flex flex-col gap-1">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Created From</span>
-                <input type="date" value={dateFrom} onChange={(e) => filterChange(() => setDateFrom(e.target.value))}
-                  className="h-8 rounded-md border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-ring min-w-[140px]" />
-              </div>
-              <div className="flex flex-col gap-1">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Created To</span>
-                <input type="date" value={dateTo} min={dateFrom || undefined} onChange={(e) => filterChange(() => setDateTo(e.target.value))}
-                  className="h-8 rounded-md border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-ring min-w-[140px]" />
-              </div>
-            </>
-          )}
           {activeFilters.includes('updatedAt') && (
             <>
               <div className="flex flex-col gap-1">
@@ -923,56 +793,6 @@ export default function AllLeadsPage() {
                   className="h-8 rounded-md border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-ring min-w-[140px]" />
               </div>
             </>
-          )}
-          {activeFilters.includes('primaryAppConfirm') && (
-            <div className="flex flex-col gap-1">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Primary App. Confirm</span>
-              <MultiSelectFilter placeholder="Any" options={primaryAppConfirmOpts} selected={primaryAppConfirms} onChange={(v) => filterChange(() => setPrimaryAppConfirms(v))} loading={optsLoading} />
-            </div>
-          )}
-          {activeFilters.includes('primaryAdmConfirm') && (
-            <div className="flex flex-col gap-1">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Primary Adm. Confirm</span>
-              <MultiSelectFilter placeholder="Any" options={primaryAdmConfirmOpts} selected={primaryAdmConfirms} onChange={(v) => filterChange(() => setPrimaryAdmConfirms(v))} loading={optsLoading} />
-            </div>
-          )}
-          {activeFilters.includes('leadConfirmation') && (
-            <div className="flex flex-col gap-1">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Lead Confirmation</span>
-              <MultiSelectFilter placeholder="Any" options={leadConfirmationOptions} selected={leadConfirmations} onChange={(v) => filterChange(() => setLeadConfirmations(v))} loading={optsLoading} />
-            </div>
-          )}
-          {activeFilters.includes('leadStage') && (
-            <div className="flex flex-col gap-1">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Lead Stage</span>
-              <MultiSelectFilter placeholder="Any" options={leadStageOptions} selected={leadStages} onChange={(v) => filterChange(() => setLeadStages(v))} loading={optsLoading} />
-            </div>
-          )}
-          {activeFilters.includes('leadVerification') && (
-            <div className="flex flex-col gap-1">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Lead Verification</span>
-              <MultiSelectFilter placeholder="Any" options={leadVerificationOptions} selected={leadVerifications} onChange={(v) => filterChange(() => setLeadVerifications(v))} loading={optsLoading} />
-            </div>
-          )}
-          {activeFilters.includes('dataCallingType') && (
-            <div className="flex flex-col gap-1">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Data Calling Type</span>
-              <MultiSelectFilter placeholder="Any" options={dataCallingTypeOptions} selected={dataCallingTypes} onChange={(v) => filterChange(() => setDataCallingTypes(v))} loading={optsLoading} />
-            </div>
-          )}
-          {activeFilters.includes('dealType') && (
-            <div className="flex flex-col gap-1">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Deal Type</span>
-              <MultiSelectFilter placeholder="Any" options={dealTypeOptions} selected={dealTypes} onChange={(v) => filterChange(() => setDealTypes(v))} loading={optsLoading} />
-            </div>
-          )}
-          {activeFilters.includes('sessionYear') && (
-            <div className="flex flex-col gap-1">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Session/Year</span>
-              {/* The years an admin has configured on colleges, plus NA for a
-                  college with none — matching what the column shows. */}
-              <MultiSelectFilter placeholder="Any" options={sessionYearOptions} selected={sessionYears} onChange={(v) => filterChange(() => setSessionYears(v))} loading={optsLoading} />
-            </div>
           )}
         </div>
       )}
@@ -994,7 +814,6 @@ export default function AllLeadsPage() {
               <th className="sticky left-10 z-30 bg-muted border-r border-border/60 whitespace-nowrap px-3 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground min-w-[112px]">
                 Lead ID
               </th>
-              <th className="whitespace-nowrap px-3 py-2.5 text-center text-[10px] font-bold uppercase tracking-wider text-muted-foreground min-w-[140px]">Data Calling Type</th>
               <th className="whitespace-nowrap px-3 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground min-w-[150px]">Name</th>
               <th className="whitespace-nowrap px-3 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground min-w-[190px]">Email</th>
               <th className="whitespace-nowrap px-3 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground min-w-[130px]">Phone</th>
@@ -1002,34 +821,20 @@ export default function AllLeadsPage() {
               <th className="whitespace-nowrap px-3 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground min-w-[90px]">State</th>
               <th className="whitespace-nowrap px-3 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground min-w-[110px]">Course</th>
               <th className="whitespace-nowrap px-3 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground min-w-[160px]">College</th>
-              <th className="whitespace-nowrap px-3 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground min-w-[110px]">Client Type</th>
-              <th className="whitespace-nowrap px-3 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground min-w-[130px]">KAPP College ID</th>
-              <th className="whitespace-nowrap px-3 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground min-w-[110px]">Session/Year</th>
               <th className="whitespace-nowrap px-3 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground min-w-[140px]">Agent</th>
               <th className="whitespace-nowrap px-3 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground min-w-[160px]">Feedback</th>
               <th className="whitespace-nowrap px-3 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground min-w-[130px]">Profile %</th>
-              <th className="whitespace-nowrap px-3 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground min-w-[130px]">Lead Code</th>
-              {showLeadType && <th className="whitespace-nowrap px-3 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground min-w-[120px]">Lead Type</th>}
-              <th className="whitespace-nowrap px-3 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground min-w-[120px]">Lead Origin</th>
-              <th className="whitespace-nowrap px-3 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground min-w-[90px]">Zone</th>
-              <th className="whitespace-nowrap px-3 py-2.5 text-center text-[10px] font-bold uppercase tracking-wider text-muted-foreground min-w-[160px]">Primary App. Confirm</th>
-              <th className="whitespace-nowrap px-3 py-2.5 text-center text-[10px] font-bold uppercase tracking-wider text-muted-foreground min-w-[160px]">Primary Adm. Confirm</th>
-              <th className="whitespace-nowrap px-3 py-2.5 text-center text-[10px] font-bold uppercase tracking-wider text-muted-foreground min-w-[140px]">Lead Confirmation</th>
-              <th className="whitespace-nowrap px-3 py-2.5 text-center text-[10px] font-bold uppercase tracking-wider text-muted-foreground min-w-[120px]">Lead Stage</th>
-              <th className="whitespace-nowrap px-3 py-2.5 text-center text-[10px] font-bold uppercase tracking-wider text-muted-foreground min-w-[140px]">Lead Verification</th>
-              <th className="whitespace-nowrap px-3 py-2.5 text-center text-[10px] font-bold uppercase tracking-wider text-muted-foreground min-w-[120px]">Deal Type</th>
+              <th className="whitespace-nowrap px-3 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground min-w-[130px]">Lead Source</th>
               <th className="whitespace-nowrap px-3 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground min-w-[130px]">Updated At</th>
-              <th className="whitespace-nowrap px-3 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground min-w-[130px]">Created At</th>
               <th className="whitespace-nowrap px-3 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground min-w-[130px]">Uploaded At</th>
             </tr>
           </thead>
           <tbody>
-            {isLoading ? <SkeletonRows hideLeadType={!showLeadType} /> : (
+            {isLoading ? <SkeletonRows /> : (
               <AnimatePresence initial={false}>
                 {leads.map((lead, rowIdx) => {
                   const isSelected      = selectedLeadId === lead.id;
                   const latestFeedback  = lead.feedbacks[0]?.feedbackOption?.label;
-                  const zoneColor       = lead.leadZone ? ZONE_DOT[lead.leadZone] ?? 'bg-gray-400' : null;
                   const profilingPct    = computeProfilingScore(lead).percentage;
                   const profilingTone   = profilingScoreTone(profilingPct);
 
@@ -1074,8 +879,6 @@ export default function AllLeadsPage() {
                       <td className={cn('sticky left-10 z-10 border-r border-border/60 px-3 py-2.5 font-mono text-xs text-muted-foreground whitespace-nowrap transition-colors', stickyBg)}>
                         {displayLeadId(lead.id)}
                       </td>
-                      <td className="px-3 py-2.5 whitespace-nowrap text-center text-xs text-muted-foreground">{lead.dataCallingType || '—'}</td>
-
                       <td className="px-3 py-2.5 whitespace-nowrap font-semibold text-sm">{lead.name}</td>
                       <td className="px-3 py-2.5 whitespace-nowrap text-xs text-muted-foreground">{lead.email}</td>
                       <td className="px-3 py-2.5 whitespace-nowrap text-[#e90000] dark:text-white font-medium text-sm">{lead.phone}</td>
@@ -1083,27 +886,6 @@ export default function AllLeadsPage() {
                       <td className="px-3 py-2.5 whitespace-nowrap text-xs text-muted-foreground">{lead.state || '—'}</td>
                       <td className="px-3 py-2.5 whitespace-nowrap text-xs text-muted-foreground">{lead.course || '—'}</td>
                       <td className="px-3 py-2.5 whitespace-nowrap text-xs text-muted-foreground">{lead.college || '—'}</td>
-                      {/* "NA" is a real answer here — the college exists but nobody has
-                          said whether it is a client — so it is greyed rather than dashed. */}
-                      <td className="px-3 py-2.5 whitespace-nowrap text-xs">
-                        {lead.clientType && lead.clientType !== 'NA' ? (
-                          <span className="text-foreground">{lead.clientType}</span>
-                        ) : (
-                          <span className="text-muted-foreground/60">NA</span>
-                        )}
-                      </td>
-                      <td className="px-3 py-2.5 whitespace-nowrap text-xs font-mono text-muted-foreground">{lead.kappCollegeId || '—'}</td>
-                      {/* Read live from the college, exactly as Client Type is, so
-                          editing the year on a college changes every one of its
-                          leads here. "NA" means the college has none set. */}
-                      <td className="px-3 py-2.5 whitespace-nowrap text-xs">
-                        {lead.sessionYear && lead.sessionYear !== 'NA' ? (
-                          <span className="text-foreground">{lead.sessionYear}</span>
-                        ) : (
-                          <span className="text-muted-foreground/60">NA</span>
-                        )}
-                      </td>
-
                       {/* Agent */}
                       <td className="px-3 py-2.5 whitespace-nowrap text-xs">
                         {lead.assignedTo
@@ -1139,49 +921,14 @@ export default function AllLeadsPage() {
 
                       <td className="px-3 py-2.5 whitespace-nowrap text-xs text-muted-foreground">{lead.campaign || '—'}</td>
 
-                      {showLeadType && <td className="px-3 py-2.5 whitespace-nowrap text-xs text-muted-foreground">{lead.leadType || '—'}</td>}
-
-                      <td className="px-3 py-2.5 whitespace-nowrap text-xs text-muted-foreground">{lead.leadOrigin || '—'}</td>
-
-                      {/* Zone dot */}
-                      <td className="px-3 py-2.5 whitespace-nowrap">
-                        {lead.leadZone && zoneColor
-                          ? <span className="inline-flex items-center gap-1.5">
-                              <span className={cn('h-1.5 w-1.5 rounded-full shrink-0', zoneColor)} />
-                              <span className="text-xs">{lead.leadZone}</span>
-                            </span>
-                          : <span className="text-xs text-muted-foreground">—</span>}
-                      </td>
-
-                      <td className="px-3 py-2.5 whitespace-nowrap text-center text-xs text-muted-foreground">{lead.primaryApplicationConfirm || '—'}</td>
-                      <td className="px-3 py-2.5 whitespace-nowrap text-center text-xs text-muted-foreground">{lead.primaryAdmissionConfirm || '—'}</td>
-                      <td className="px-3 py-2.5 whitespace-nowrap text-center text-xs text-muted-foreground">{lead.leadConfirmation || '—'}</td>
-                      {/* Latest stage, plus a count of the earlier ones this
-                          lead has moved through. The full dated list is in the
-                          lead drawer. */}
-                      <td className="px-3 py-2.5 whitespace-nowrap text-center text-xs text-muted-foreground">
-                        {lead.leadStage || '—'}
-                        {(lead._count.stageHistory ?? 0) > 1 && (
-                          <span
-                            className="ml-1.5 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground"
-                            title={`${lead._count.stageHistory} stages recorded — open the lead to see the history`}
-                          >
-                            +{lead._count.stageHistory! - 1}
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-3 py-2.5 whitespace-nowrap text-center text-xs text-muted-foreground">{lead.leadVerification || '—'}</td>
-                      <td className="px-3 py-2.5 whitespace-nowrap text-center text-xs text-muted-foreground">{lead.dealType || '—'}</td>
-
                       <td className="px-3 py-2.5 whitespace-nowrap text-xs text-muted-foreground">{fmtDate(lead.updatedAt)}</td>
                       <td className="px-3 py-2.5 whitespace-nowrap text-xs text-muted-foreground">{lead.uploadedAt ? fmtDate(lead.uploadedAt) : '—'}</td>
-                      <td className="px-3 py-2.5 whitespace-nowrap text-xs text-muted-foreground">{fmtDate(lead.createdAt)}</td>
                     </motion.tr>
                   );
                 })}
                 {leads.length === 0 && (
                   <tr>
-                    <td colSpan={30} className="px-3 py-16 text-center text-muted-foreground text-sm">
+                    <td colSpan={16} className="px-3 py-16 text-center text-muted-foreground text-sm">
                       No leads found matching the current filters.
                     </td>
                   </tr>
@@ -1225,10 +972,9 @@ export default function AllLeadsPage() {
 
           <div className="py-2 space-y-5 max-h-[60vh] overflow-y-auto pr-1">
             {FILTER_GROUPS.map(({ group, filters }) => {
-              // hide TL/Agent/Lead Type if the role doesn't show them
+              // hide TL/Agent if the role doesn't show them
               const visible = filters.filter(
                 (f) => (f.key !== 'tl' || showTlFilter) && (f.key !== 'agent' || showAgentFilter)
-                    && (f.key !== 'leadType' || showLeadType)
               );
               if (visible.length === 0) return null;
               const allChecked = visible.every((f) => dialogFilters.includes(f.key));
