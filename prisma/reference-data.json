@@ -1,0 +1,507 @@
+{
+  "permissions": [
+    {
+      "role": "REPORTS",
+      "feature": "VIEW_REPORTS",
+      "canAccess": true
+    },
+    {
+      "role": "REPORTS",
+      "feature": "DOWNLOAD_DATA",
+      "canAccess": false
+    },
+    {
+      "role": "REPORTS",
+      "feature": "MASK_UNMASK_DATA",
+      "canAccess": true
+    },
+    {
+      "role": "REPORTS",
+      "feature": "APPROVE_LEADS",
+      "canAccess": true
+    },
+    {
+      "role": "REPORTS",
+      "feature": "ASSIGN_LEADS",
+      "canAccess": true
+    },
+    {
+      "role": "REPORTS",
+      "feature": "VIEW_LEADS",
+      "canAccess": true
+    },
+    {
+      "role": "REPORTS",
+      "feature": "SUBMIT_FEEDBACK",
+      "canAccess": false
+    },
+    {
+      "role": "OPERATIONS",
+      "feature": "VIEW_REPORTS",
+      "canAccess": false
+    },
+    {
+      "role": "OPERATIONS",
+      "feature": "DOWNLOAD_DATA",
+      "canAccess": false
+    },
+    {
+      "role": "OPERATIONS",
+      "feature": "UPLOAD_LEADS",
+      "canAccess": true
+    },
+    {
+      "role": "OPERATIONS",
+      "feature": "APPROVE_LEADS",
+      "canAccess": false
+    },
+    {
+      "role": "OPERATIONS",
+      "feature": "ASSIGN_LEADS",
+      "canAccess": false
+    },
+    {
+      "role": "OPERATIONS",
+      "feature": "VIEW_LEADS",
+      "canAccess": false
+    },
+    {
+      "role": "OPERATIONS",
+      "feature": "SUBMIT_FEEDBACK",
+      "canAccess": false
+    },
+    {
+      "role": "COUNSELLING_TL",
+      "feature": "VIEW_REPORTS",
+      "canAccess": true
+    },
+    {
+      "role": "COUNSELLING_TL",
+      "feature": "UPLOAD_LEADS",
+      "canAccess": false
+    },
+    {
+      "role": "COUNSELLING_TL",
+      "feature": "APPROVE_LEADS",
+      "canAccess": false
+    },
+    {
+      "role": "COUNSELLING_TL",
+      "feature": "ASSIGN_LEADS",
+      "canAccess": true
+    },
+    {
+      "role": "COUNSELLING_TL",
+      "feature": "VIEW_LEADS",
+      "canAccess": true
+    },
+    {
+      "role": "COUNSELLING_AGENT",
+      "feature": "VIEW_REPORTS",
+      "canAccess": false
+    },
+    {
+      "role": "COUNSELLING_AGENT",
+      "feature": "MASK_UNMASK_DATA",
+      "canAccess": true
+    },
+    {
+      "role": "COUNSELLING_AGENT",
+      "feature": "UPLOAD_LEADS",
+      "canAccess": false
+    },
+    {
+      "role": "COUNSELLING_AGENT",
+      "feature": "ASSIGN_LEADS",
+      "canAccess": false
+    },
+    {
+      "role": "COUNSELLING_AGENT",
+      "feature": "VIEW_LEADS",
+      "canAccess": true
+    },
+    {
+      "role": "COUNSELLING_AGENT",
+      "feature": "SUBMIT_FEEDBACK",
+      "canAccess": true
+    }
+  ],
+  "feedbackCategories": [
+    {
+      "id": "cmrdj8t0200038r98y3m1hxkl",
+      "name": "Hot",
+      "color": "#ef4444",
+      "sortOrder": 0
+    },
+    {
+      "id": "cmrdj94qe00058r98w6u6i4y0",
+      "name": "Warm",
+      "color": "#f59e0b",
+      "sortOrder": 0
+    },
+    {
+      "id": "cmrdj9hn600078r9844wny5dw",
+      "name": "Cold",
+      "color": "#0549a8",
+      "sortOrder": 0
+    },
+    {
+      "id": "cmsz0alda0003145ivql6hsop",
+      "name": "Connected",
+      "color": "#22c55e",
+      "sortOrder": 0
+    },
+    {
+      "id": "cmsz0aldd0005145ik3b8v7di",
+      "name": "Not Connected",
+      "color": "#ef4444",
+      "sortOrder": 0
+    }
+  ],
+  "feedbackOptions": [
+    {
+      "id": "cmrdjn5ho00178r98980xaeqr",
+      "label": "Not Interested",
+      "description": null,
+      "isActive": true,
+      "sortOrder": 0,
+      "categoryId": "cmrdj9hn600078r9844wny5dw"
+    },
+    {
+      "id": "cmrdjnycs00198r98zrltd914",
+      "label": "Call Back",
+      "description": null,
+      "isActive": true,
+      "sortOrder": 0,
+      "categoryId": "cmrdj94qe00058r98w6u6i4y0"
+    },
+    {
+      "id": "cmsz1bfs4000mq8omgfv3o1sf",
+      "label": "Wrong Number",
+      "description": "Wrong Number - Not Looking for Any College",
+      "isActive": true,
+      "sortOrder": 0,
+      "categoryId": "cmsz0alda0003145ivql6hsop"
+    },
+    {
+      "id": "cmsz1bfqi0000q8omttinep66",
+      "label": "Admission Done",
+      "description": "Admission Done by Agent",
+      "isActive": true,
+      "sortOrder": 0,
+      "categoryId": "cmsz0alda0003145ivql6hsop"
+    },
+    {
+      "id": "cmsz1bfqm0001q8om6sl41tnt",
+      "label": "Application Done",
+      "description": "Agent has pitched to Student and done the process",
+      "isActive": true,
+      "sortOrder": 0,
+      "categoryId": "cmsz0alda0003145ivql6hsop"
+    },
+    {
+      "id": "cmsz1bfqp0002q8om86mhte4u",
+      "label": "Application Filled in Other University",
+      "description": "Student has filled the application in other university",
+      "isActive": true,
+      "sortOrder": 0,
+      "categoryId": "cmsz0alda0003145ivql6hsop"
+    },
+    {
+      "id": "cmsz1bfqs0003q8omeon8g7xh",
+      "label": "Budget Issue",
+      "description": "Student have the budget issue for same college",
+      "isActive": true,
+      "sortOrder": 0,
+      "categoryId": "cmsz0alda0003145ivql6hsop"
+    },
+    {
+      "id": "cmsz1bfqv0004q8om262xrxuy",
+      "label": "Call Disconnect",
+      "description": "Call Disconnect after Introducing College",
+      "isActive": true,
+      "sortOrder": 0,
+      "categoryId": "cmsz0aldd0005145ik3b8v7di"
+    },
+    {
+      "id": "cmsz1bfqy0005q8om6g3efc7v",
+      "label": "Callback",
+      "description": "Student told for Callback",
+      "isActive": true,
+      "sortOrder": 0,
+      "categoryId": "cmsz0alda0003145ivql6hsop"
+    },
+    {
+      "id": "cmsz1bfr00006q8omtypqr9wk",
+      "label": "Cold",
+      "description": "Student is Searching the College.",
+      "isActive": true,
+      "sortOrder": 0,
+      "categoryId": "cmsz0alda0003145ivql6hsop"
+    },
+    {
+      "id": "cmsz1bfr30007q8om2ecxvr91",
+      "label": "Hot",
+      "description": "Student fill the Form Same day",
+      "isActive": true,
+      "sortOrder": 0,
+      "categoryId": "cmsz0alda0003145ivql6hsop"
+    },
+    {
+      "id": "cmsz1bfr50008q8omthjnjtmx",
+      "label": "ICNA",
+      "description": "Incoming Calls Not Available",
+      "isActive": true,
+      "sortOrder": 0,
+      "categoryId": "cmsz0aldd0005145ik3b8v7di"
+    },
+    {
+      "id": "cmrdjo6z6001b8r98y3s9n0js",
+      "label": "Interested",
+      "description": "Looking for the same college",
+      "isActive": true,
+      "sortOrder": 0,
+      "categoryId": "cmsz0alda0003145ivql6hsop"
+    },
+    {
+      "id": "cmsz1bfra0009q8om4crxmz6q",
+      "label": "Invalid Number",
+      "description": "Invalid Number",
+      "isActive": true,
+      "sortOrder": 0,
+      "categoryId": "cmsz0aldd0005145ik3b8v7di"
+    },
+    {
+      "id": "cmsz1bfrc000aq8omhx6ljlgy",
+      "label": "Language Barrier",
+      "description": "Agents can't understand the student language",
+      "isActive": true,
+      "sortOrder": 0,
+      "categoryId": "cmsz0alda0003145ivql6hsop"
+    },
+    {
+      "id": "cmsz1bfrf000bq8ommrnbf019",
+      "label": "Not Eligible",
+      "description": "Not Eligible for UG and PG",
+      "isActive": true,
+      "sortOrder": 0,
+      "categoryId": "cmsz0alda0003145ivql6hsop"
+    },
+    {
+      "id": "cmsz1bfrh000cq8omlifegarp",
+      "label": "Not Intrested",
+      "description": "Not Looking for College",
+      "isActive": true,
+      "sortOrder": 0,
+      "categoryId": "cmsz0alda0003145ivql6hsop"
+    },
+    {
+      "id": "cmsz1bfrj000dq8omu92fifsl",
+      "label": "Out of network",
+      "description": "Can't connected due to network",
+      "isActive": true,
+      "sortOrder": 0,
+      "categoryId": "cmsz0aldd0005145ik3b8v7di"
+    },
+    {
+      "id": "cmsz1bfrl000eq8omyvjog9he",
+      "label": "Planning for Later",
+      "description": "Planning for Later",
+      "isActive": true,
+      "sortOrder": 0,
+      "categoryId": "cmsz0alda0003145ivql6hsop"
+    },
+    {
+      "id": "cmsz1bfrn000fq8omvii02obt",
+      "label": "RNR",
+      "description": "Ringing not responding",
+      "isActive": true,
+      "sortOrder": 0,
+      "categoryId": "cmsz0aldd0005145ik3b8v7di"
+    },
+    {
+      "id": "cmsz1bfrq000gq8ombam0cln8",
+      "label": "Switch Off",
+      "description": "Switch off",
+      "isActive": true,
+      "sortOrder": 0,
+      "categoryId": "cmsz0aldd0005145ik3b8v7di"
+    },
+    {
+      "id": "cmsz1bfrs000hq8om4919leef",
+      "label": "Taken Admission in Other University",
+      "description": "Student has take the admission in Other University",
+      "isActive": true,
+      "sortOrder": 0,
+      "categoryId": "cmsz0alda0003145ivql6hsop"
+    },
+    {
+      "id": "cmsz1bfrv000iq8omekl2u7d4",
+      "label": "Tried 5 Time",
+      "description": "RNR - Ringing not Responding",
+      "isActive": true,
+      "sortOrder": 0,
+      "categoryId": "cmsz0aldd0005145ik3b8v7di"
+    },
+    {
+      "id": "cmsz1bfrx000jq8omc54ptvua",
+      "label": "Walk-In",
+      "description": "Interested Candidate",
+      "isActive": true,
+      "sortOrder": 0,
+      "categoryId": "cmsz0alda0003145ivql6hsop"
+    },
+    {
+      "id": "cmsz1bfrz000kq8omvt38u56z",
+      "label": "Warm",
+      "description": "Student Intrested Fill the Form in 7 days",
+      "isActive": true,
+      "sortOrder": 0,
+      "categoryId": "cmsz0alda0003145ivql6hsop"
+    },
+    {
+      "id": "cmsz1bfs1000lq8omfwmnpmq4",
+      "label": "Will Apply Today/Tomorrow",
+      "description": "Candidate confirm he will apply Today/Tomorrow",
+      "isActive": true,
+      "sortOrder": 0,
+      "categoryId": "cmsz0alda0003145ivql6hsop"
+    }
+  ],
+  "dropdownOptions": [
+    {
+      "id": "cmrogmxfp001w8r9844mqkw0d",
+      "type": "COLLEGE",
+      "value": "Goa Institute of Management",
+      "collegeZone": "North",
+      "collegeDealType": "CPL",
+      "collegeClientType": "Client",
+      "landingPageUrl": "https://gim.ac.in/?utm_medium=kcll_{{%agent%}}",
+      "leadCodeCallingType": null,
+      "isActive": true,
+      "sortOrder": 0
+    },
+    {
+      "id": "cmrulx96000177vhgkrcncnul",
+      "type": "COLLEGE",
+      "value": "Kros College",
+      "collegeZone": null,
+      "collegeDealType": null,
+      "collegeClientType": "Client",
+      "landingPageUrl": null,
+      "leadCodeCallingType": null,
+      "isActive": true,
+      "sortOrder": 0
+    },
+    {
+      "id": "cmrdjp2uj001d8r984neeodu4",
+      "type": "COLLEGE",
+      "value": "Sushant University",
+      "collegeZone": null,
+      "collegeDealType": null,
+      "collegeClientType": null,
+      "landingPageUrl": "https://application.greatlakes.edu.in/?utm_source=kollege_apply&utm_medium=kcll_{{%agent%}}&utm_campaign=2027",
+      "leadCodeCallingType": null,
+      "isActive": true,
+      "sortOrder": 0
+    },
+    {
+      "id": "cmrdjaktf000f8r98nprqit03",
+      "type": "ZONE",
+      "value": "East",
+      "collegeZone": null,
+      "collegeDealType": null,
+      "collegeClientType": null,
+      "landingPageUrl": null,
+      "leadCodeCallingType": null,
+      "isActive": true,
+      "sortOrder": 0
+    },
+    {
+      "id": "cmrdjaonw000h8r98q1959lp4",
+      "type": "ZONE",
+      "value": "Central",
+      "collegeZone": null,
+      "collegeDealType": null,
+      "collegeClientType": null,
+      "landingPageUrl": null,
+      "leadCodeCallingType": null,
+      "isActive": true,
+      "sortOrder": 0
+    },
+    {
+      "id": "cmrdja6ky00098r98ozibtxk3",
+      "type": "ZONE",
+      "value": "South",
+      "collegeZone": null,
+      "collegeDealType": null,
+      "collegeClientType": null,
+      "landingPageUrl": null,
+      "leadCodeCallingType": null,
+      "isActive": true,
+      "sortOrder": 0
+    },
+    {
+      "id": "cmrdjabxm000b8r989v7rimjh",
+      "type": "ZONE",
+      "value": "North",
+      "collegeZone": null,
+      "collegeDealType": null,
+      "collegeClientType": null,
+      "landingPageUrl": null,
+      "leadCodeCallingType": null,
+      "isActive": true,
+      "sortOrder": 0
+    },
+    {
+      "id": "cmrdjafy1000d8r987yxxuy9m",
+      "type": "ZONE",
+      "value": "West",
+      "collegeZone": null,
+      "collegeDealType": null,
+      "collegeClientType": null,
+      "landingPageUrl": null,
+      "leadCodeCallingType": null,
+      "isActive": true,
+      "sortOrder": 0
+    },
+    {
+      "id": "cmruhmt30000p7vhgf3yi3gtn",
+      "type": "DEAL_TYPE",
+      "value": "Application",
+      "collegeZone": null,
+      "collegeDealType": null,
+      "collegeClientType": null,
+      "landingPageUrl": null,
+      "leadCodeCallingType": null,
+      "isActive": true,
+      "sortOrder": 0
+    },
+    {
+      "id": "cmruhmpok000n7vhgumpi4gce",
+      "type": "DEAL_TYPE",
+      "value": "Admission",
+      "collegeZone": null,
+      "collegeDealType": null,
+      "collegeClientType": null,
+      "landingPageUrl": null,
+      "leadCodeCallingType": null,
+      "isActive": true,
+      "sortOrder": 0
+    }
+  ],
+  "kpiDefinitions": [
+    {
+      "id": "cmvatnp5v000yvfor77daezk9",
+      "name": "Dialed Calls",
+      "unit": "calls",
+      "source": "FEEDBACK_COUNT",
+      "feedbackOptionIds": [],
+      "feedbackCategoryIds": [],
+      "leadStages": [],
+      "receiptType": null,
+      "isActive": true,
+      "sortOrder": 1
+    }
+  ]
+}

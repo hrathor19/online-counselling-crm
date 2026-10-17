@@ -581,7 +581,13 @@ function linkButton(href: string, label: string): string {
 
 /** Login details and the two links a new joiner needs on day one. */
 export function buildWelcomeEmail(user: WelcomeRecipient): BuiltReport {
-  const crmUrl = process.env.NEXTAUTH_URL || 'http://13.206.157.201';
+  // No hardcoded fallback: the old one pointed at the counselling CRM's
+  // server, so an Online CRM running without NEXTAUTH_URL would have told a
+  // new joiner to log in somewhere their account does not exist. A relative
+  // link is wrong in email, so the button is dropped instead — the rest of
+  // the welcome (their username, and who to ask for the password) still
+  // stands on its own.
+  const crmUrl = process.env.NEXTAUTH_URL?.trim() || null;
 
   const detail = (label: string, value: string) =>
     `<tr>${cell(label, { head: true, align: 'left' })}${cellBox(value, { bold: true, align: 'left' })}</tr>`;
@@ -600,7 +606,7 @@ ${detail('Username', esc(user.email))}
 ${credentials}
 </table>
 
-<p style="font-size:13px;margin:0 0 10px">${linkButton(crmUrl, 'Open the CRM')}</p>
+${crmUrl ? `<p style="font-size:13px;margin:0 0 10px">${linkButton(crmUrl, 'Open the CRM')}</p>` : ''}
 
 
 <p style="font-size:12px;color:${MUTED};margin:0">

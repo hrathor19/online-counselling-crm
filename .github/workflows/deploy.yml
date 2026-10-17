@@ -1,8 +1,7 @@
-name: Deploy to AWS
+name: Deploy Online CRM
 
-# Manual trigger only — pushing to main no longer auto-deploys. Deploy
-# explicitly via `gh workflow run "Deploy to AWS" --ref main` or the
-# "Run workflow" button on the Actions tab.
+# Manual dispatch only. An automatic deploy on every push would restart the
+# app while the floor is mid-call.
 on:
   workflow_dispatch:
 
@@ -13,34 +12,24 @@ jobs:
       - name: SSH and deploy
         uses: appleboy/ssh-action@v1.0.3
         with:
+          # These point at the ONLINE CRM's box. They are this repository's own
+          # secrets — the counsellor CRM has its own, in its own repository.
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          # Default is 10m — this 1GB-RAM server's static-generation phase can
-          # run long under memory pressure and blew past that once already
-          # (the SSH client gave up and reported a false failure while the
-          # remote build kept running unattended to completion).
           command_timeout: 30m
-          # The server has 1GB RAM — cap Node's heap during build so it
-          # swaps instead of OOM-killing the build process (see next.config.js
-          # for the matching single-worker/timeout settings).
-          #
-          # Deliberately does NOT run `prisma db push` — that command can
-          # silently drop columns/data on a destructive schema change, so it
-          # stays a manual, reviewed step rather than something that runs
-          # unattended on every push.
           script: |
             set -e
             cd ~/app
-            # `npm install` can rewrite package-lock.json (e.g. metadata like
-            # hasInstallScript differing by npm version) leaving the server's
-            # working tree dirty and aborting the next `git pull` with a merge
-            # conflict. Discard any such drift before pulling, and use `npm ci`
-            # (installs strictly from the committed lockfile, never rewrites it)
-            # instead of `npm install` so it can't recur.
             git checkout -- package-lock.json 2>/dev/null || true
             git pull origin main
             npm ci
             npx prisma generate
-            NODE_OPTIONS='--max-old-space-size=1536' npm run build
-            pm2 restart crm
+            # The schema is kept in step with `db push`, not migrations — the
+            # migrations folder stopped being maintained long ago and running
+            # `migrate deploy` here would build the wrong schema. See the
+            # deployment notes for the one line of expected `migrate diff`
+            # drift (the custom LID sequence).
+            npx prisma db push --accept-data-loss
+            NODE_OPTIONS='--max-old-space-size=2048' npm run build
+            pm2 restart online-crm --update-env
