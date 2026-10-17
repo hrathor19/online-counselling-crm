@@ -22,8 +22,12 @@ const nextConfig = {
           { key: 'X-Content-Type-Options', value: 'nosniff' },
           // Never leak internal URLs (which contain lead ids) to other sites
           { key: 'Referrer-Policy', value: 'same-origin' },
-          // The app never needs these browser capabilities
-          { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
+          // Camera and microphone are never needed. Geolocation IS, for the
+          // attendance check-in geofence — `(self)` grants it to our own
+          // origin only, so an embedded third party still cannot ask for it.
+          // An empty `geolocation=()` denies it to us too, which silently
+          // breaks check-in for every WFO agent.
+          { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=(self)' },
         ],
       },
     ];
