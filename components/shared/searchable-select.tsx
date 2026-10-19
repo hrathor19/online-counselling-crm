@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
+import * as Popover from '@radix-ui/react-popover';
 import { Check, ChevronDown, Search } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -12,7 +13,24 @@ export interface SearchableSelectOption {
 const INPUT_CLASS =
   'flex h-9 w-full items-center rounded-md border border-input bg-background px-3 text-[13px] text-foreground shadow-sm transition-all duration-150 placeholder:text-muted-foreground/60 hover:border-primary/40 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/15';
 
-/** Single-value dropdown with an in-list search box — for long option lists (cities, courses, colleges…). */
+/**
+ * Single-value dropdown with an in-list search box — for long option lists
+ * (cities, courses, colleges…).
+ *
+ * Built on Radix Popover rather than an absolutely positioned div, because
+ * every dialog this appears in is `max-h-[90vh] overflow-y-auto`, and a scroll
+ * container clips an absolutely positioned child however high its z-index is.
+ *
+ * `position: fixed` does not rescue it either: DialogContent is centred with
+ * `translate-x-[-50%]`, and a transformed ancestor becomes the containing
+ * block for fixed descendants, so the panel stays trapped.
+ *
+ * A hand-rolled portal escapes the clipping but then fights the dialog's focus
+ * trap, which pulls focus back out of the portaled search box. Popover is the
+ * primitive that solves all three at once: it portals, it flips when it would
+ * overflow the viewport, and it registers with the same layer stack Dialog
+ * uses, so focus and dismissal nest correctly.
+ */
 export function SearchableSelect({
   options, value, onChange, placeholder, disabled,
 }: {
@@ -24,16 +42,6 @@ export function SearchableSelect({
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    function handle(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    }
-    document.addEventListener('mousedown', handle);
-    return () => document.removeEventListener('mousedown', handle);
-  }, [open]);
 
   const filtered = useMemo(() => {
     const q = query.toLowerCase().trim();
@@ -44,26 +52,43 @@ export function SearchableSelect({
   const label = options.find((o) => o.value === value)?.label;
 
   return (
-    <div ref={ref} className="relative">
-      <button
-        type="button"
-        disabled={disabled}
-        onClick={() => !disabled && setOpen((o) => !o)}
-        className={cn(
-          INPUT_CLASS, 'justify-between gap-2 cursor-pointer',
-          disabled && 'cursor-not-allowed bg-muted/50 text-muted-foreground/90 hover:border-input'
-        )}
-      >
-        <span className={cn('truncate text-left', !label && 'text-muted-foreground/60')}>
-          {label ?? (placeholder ?? '— Select —')}
-        </span>
-        <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
-      </button>
+    <Popover.Root
+      open={open}
+      onOpenChange={(o) => { setOpen(o); if (!o) setQuery(''); }}
+    >
+      <Popover.Trigger asChild disabled={disabled}>
+        <button
+          type="button"
+          disabled={disabled}
+          className={cn(
+            INPUT_CLASS, 'justify-between gap-2 cursor-pointer',
+            disabled && 'cursor-not-allowed bg-muted/50 text-muted-foreground/90 hover:border-input'
+          )}
+        >
+          <span className={cn('truncate text-left', !label && 'text-muted-foreground/60')}>
+            {label ?? (placeholder ?? '— Select —')}
+          </span>
+          <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
+        </button>
+      </Popover.Trigger>
 
-      {open && !disabled && (
-        <div className="absolute z-50 mt-1 w-full rounded-md border border-border bg-background shadow-lg overflow-hidden">
+      <Popover.Portal>
+        <Popover.Content
+          align="start"
+          sideOffset={4}
+          // Flips above the trigger when there is not room below — the usual
+          // case for a field near the bottom of a dialog.
+          collisionPadding={8}
+          // Match the trigger's width, the way a native select behaves.
+          style={{ width: 'var(--radix-popover-trigger-width)' }}
+          // Above the dialog overlay and content, both of which sit at z-50.
+          className="z-[100] overflow-hidden rounded-md border border-border bg-background shadow-lg"
+          // The search box owns the keyboard, so focus goes there rather than
+          // to the panel itself.
+          onOpenAutoFocus={(e) => e.preventDefault()}
+        >
           <div className="flex items-center gap-1.5 border-b border-border px-2.5 py-1.5">
-            <Search className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+            <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
             <input
               autoFocus
               value={query}
@@ -102,8 +127,8 @@ export function SearchableSelect({
               );
             })}
           </ul>
-        </div>
-      )}
-    </div>
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
   );
 }
