@@ -31,53 +31,45 @@ import { buildDropdownValidationSets, isAllowedDropdownValue, type DropdownValid
 //   A request with a missing, malformed, unknown, or revoked key gets 401.
 //
 // REQUEST BODY (application/json) — a single object, OR an array of objects
-//   Every field below is REQUIRED on each lead object. A lead missing any of
-//   them, or with a value that fails its check, is rejected — the array form
-//   reports failures per item and still creates everything else that's valid.
+//   Eight required fields, matching what CSV upload asks for:
 //
 //   interface LeadIngestPayload {
-//     name: string;               // full name
-//     email: string;              // must be a syntactically valid email
-//     phone: string;               // exactly 10 digits, e.g. "9876543210"
-//     city: string;                 // must exactly match (case-insensitive) a city name
-//                                    // from the same location API this CRM's UI uses
-//     state: string;                // must exactly match (case-insensitive) a state name
-//                                    // from that same location API
+//     name: string;                 // full name
+//     email: string;                // must be a syntactically valid email
+//     phone: string;                // exactly 10 digits, e.g. "9876543210"
+//     city: string;                 // must match (case-insensitive) a city name from
+//                                   //   the same location API this CRM's UI uses
+//     state: string;                // must match (case-insensitive) a state name from
+//                                   //   that same location API
 //     course: number | string;      // the KAPP Course Group ID, e.g. 24 for "B.Pharm".
-//                                    // NOT the course name — a name is rejected.
-//                                    // Sent as a JSON number or a string, either works.
-//                                    // Validated against the provider's course-group
-//                                    // list; the id is stable across renames, which
-//                                    // the name is not.
-//     college: string;              // must match a college name configured under
-//                                    // Manage Colleges (case- and space-insensitive).
-//                                    // `kappCollegeId` is accepted as an alias key for
-//                                    // callers not yet updated, but its VALUE must now
-//                                    // be the college name, not the old numeric id.
-//     leadCode: string;             // free text, stored as this lead's "Lead Source"
-//                                    // (shown as the Lead Source column in the UI).
-//                                    // `leadSource` is accepted as an alias.
-//     leadType: string;             // must match a value configured under
-//                                    // Manage Dropdowns → Lead Type
-//     leadOrigin: string;           // must match Manage Dropdowns → Lead Origin
-//     leadConfirmation: string;     // must match Manage Dropdowns → Lead Confirmation
-//     leadStage: string;            // must match Manage Dropdowns → Lead Stage
-//     leadVerification: string;     // must match Manage Dropdowns → Lead Verification
-//     dataCallingType: string;      // OPTIONAL and ignored — the Data Calling Type now
-//                                    // comes from the lead source mapping.
-//                                    // An unmapped value stores "NA".
-//     createdAt: string;            // format: "yyyy-mm-dd" — the lead's original creation
-//                                    // date on your side (stored separately from this CRM's
-//                                    // own audit timestamp, which always reflects when the
-//                                    // record was actually inserted here)
+//                                   //   NOT the course name — a name is rejected. The
+//                                   //   id is stable across renames; the name is not.
+//     college: string;              // must match a college name configured under Manage
+//                                   //   Colleges, case- and space-insensitively. The
+//                                   //   lead is stored with the curated spelling.
+//     leadSource: string;           // free text. `leadCode` is accepted as an alias.
+//
+//     // ── optional ──────────────────────────────────────────────────────────
+//     leadStage?: string;           // sending this on a lead that ALREADY exists
+//                                   //   updates its stage instead of returning 409 —
+//                                   //   see the duplicate note below. Omit it and no
+//                                   //   stage information is recorded.
+//     createdAt?: string;           // "yyyy-mm-dd", the lead's original date on your
+//                                   //   side. Omitted means the moment it arrives here.
 //   }
 //
-//   Dropdown fields (leadType / leadOrigin / leadConfirmation / leadStage /
-//   leadVerification) match case-sensitively
-//   against the exact values configured in Manage Dropdowns. Exception: if a dropdown
-//   type has no values configured there AT ALL yet, that field is accepted
-//   as free text (there's nothing to validate against) — configure it in
-//   Manage Dropdowns once you want that specific field enforced.
+//   Anything else in the object is ignored. leadType, leadOrigin,
+//   leadConfirmation, leadVerification and dataCallingType are accepted but
+//   discarded: the columns, filters and Manage Dropdowns pages behind them were
+//   removed from this CRM, so a value would be stored where nobody can read it.
+//   They are tolerated rather than rejected so a caller written against the
+//   older contract still gets a created lead instead of a validation error.
+//
+//   A lead that already exists (email + resolved college) is normally a 409.
+//   The exception is `leadStage`: if it differs from the stored one, the stage
+//   is updated, stage history is written, the change is logged, and the agent
+//   holding the lead is notified. That is how an upstream system reports that
+//   a lead it sent earlier has moved on.
 //
 //   Duplicates (email + resolved college, case-insensitive) are checked both
 //   against leads already in the CRM AND against earlier items in the same
@@ -176,22 +168,43 @@ const payloadSchema = z.object({
   course: z.union([z.string().trim().min(1, 'course is required'), z.number()]),
   college: req1('college'),
   leadCode: req1('leadCode'),
-  leadType: req1('leadType'),
-  leadOrigin: req1('leadOrigin'),
-  leadConfirmation: req1('leadConfirmation'),
-  leadStage: req1('leadStage'),
-  leadVerification: req1('leadVerification'),
-  // Still accepted so existing integrations keep working unchanged, but the
-  // value is no longer used: the lead source decides the Data Calling Type, and
-  // an unmapped value lands as "NA". Loosened from required to
-  // optional rather than removed, which cannot break a caller either way.
-  dataCallingType: z.string().trim().optional(),
+
+  // ── Everything below is OPTIONAL ─────────────────────────────────────────
+  // The required set is the eight fields above, matching what CSV upload asks
+  // for. These remain accepted so a caller written against the old contract
+  // keeps working, and because two of them still do something.
+
+  /**
+   * Still honoured, and the reason this is not simply deleted: pushing a lead
+   * that already exists with a DIFFERENT stage updates it rather than being
+   * refused as a duplicate — writing stage history, logging it, and telling
+   * the assigned agent. That is how an upstream system reports progress on a
+   * lead it sent earlier. Omit it and that path is simply not taken.
+   */
+  leadStage: z.string().trim().optional(),
+
+  /**
+   * The lead's original date on the sender's side, kept separate from this
+   * CRM's own insert timestamp. Omitted means "now", exactly as CSV upload
+   * behaves since its created_at column was dropped.
+   */
   createdAt: z
     .string()
     .trim()
-    .min(1, 'createdAt is required')
     .regex(DATE_RE, 'createdAt must be in yyyy-mm-dd format')
-    .refine(isValidCalendarDate, 'createdAt is not a valid calendar date'),
+    .refine(isValidCalendarDate, 'createdAt is not a valid calendar date')
+    .optional(),
+
+  // Accepted and ignored. These describe concepts the Online CRM no longer
+  // has — the columns, filters and Manage Dropdowns pages behind them were
+  // all removed — so a value here would be written somewhere nobody can read.
+  // Left in the schema rather than rejected so an older caller still sending
+  // them gets a created lead instead of a validation error.
+  leadType: z.string().trim().optional(),
+  leadOrigin: z.string().trim().optional(),
+  leadConfirmation: z.string().trim().optional(),
+  leadVerification: z.string().trim().optional(),
+  dataCallingType: z.string().trim().optional(),
 });
 
 type LeadPayload = z.infer<typeof payloadSchema>;
@@ -275,20 +288,9 @@ function resolveAndValidate(d: LeadPayload, maps: CrossRefMaps): { errors: Recor
   if (!canonicalCollege) errors.college = `"${d.college}" is not in the college list`;
   else resolved.college = canonicalCollege;
 
-  const checkDropdown = (type: DropdownType, value: string, field: string, label: string) => {
-    if (!isAllowedDropdownValue(maps.dropdownData, type, value)) {
-      errors[field] = `"${value}" is not a configured ${label} value`;
-    }
-  };
-  checkDropdown(DropdownType.LEAD_TYPE, d.leadType, 'leadType', 'Lead Type');
-  checkDropdown(DropdownType.LEAD_ORIGIN, d.leadOrigin, 'leadOrigin', 'Lead Origin');
-  checkDropdown(DropdownType.LEAD_CONFIRMATION, d.leadConfirmation, 'leadConfirmation', 'Lead Confirmation');
-  // Validated against Manage Dropdowns -> Lead Stage like every other dropdown
-  // field: an unconfigured value is rejected rather than created on the fly, so
-  // an admin stays in control of the list and a typo upstream cannot quietly
-  // add a new stage.
-  checkDropdown(DropdownType.LEAD_STAGE, d.leadStage, 'leadStage', 'Lead Stage');
-  checkDropdown(DropdownType.LEAD_VERIFICATION, d.leadVerification, 'leadVerification', 'Lead Verification');
+  // No dropdown validation remains: every list these fields once checked
+  // against has been removed from this CRM, and `isAllowedDropdownValue`
+  // treats an empty list as "no rule", so the calls were already no-ops.
 
   return { errors, resolved };
 }
@@ -397,8 +399,9 @@ export async function POST(req: NextRequest) {
       const email = d.email.toLowerCase();
       const college = resolved.college ?? null;
 
-      // Validation above guarantees this matches a configured Lead Stage.
-      const leadStage = d.leadStage.trim();
+      // Optional now — null when the caller did not send one, which simply
+      // means "no stage information", not "clear the stage".
+      const leadStage = d.leadStage?.trim() || null;
       // Zone and Deal Type are properties of the college, configured once in
       // Manage Colleges, so they are copied from there rather than sent per
       // lead. `dealType` was removed from the payload for that reason — a
@@ -465,8 +468,7 @@ export async function POST(req: NextRequest) {
           name: d.name, email, phone: d.phone,
           city: resolved.city, state: resolved.state, course: resolved.course, college,
           campaign: d.leadCode,
-          leadType: d.leadType, leadOrigin: d.leadOrigin, leadConfirmation: d.leadConfirmation,
-          leadStage, leadVerification: d.leadVerification,
+          leadStage,
           // Lead code decides this, not the payload: an unmapped code lands as
           // "NA" so it is visibly waiting to be mapped.
           dataCallingType: callingType,
@@ -474,7 +476,7 @@ export async function POST(req: NextRequest) {
           leadZone: collegeAttrs?.zone ?? null,
           dealType: collegeAttrs?.dealType ?? null,
           primaryApplicationConfirm: 'No', primaryAdmissionConfirm: 'No',
-          uploadedAt: new Date(`${d.createdAt}T00:00:00.000Z`),
+          uploadedAt: d.createdAt ? new Date(`${d.createdAt}T00:00:00.000Z`) : new Date(),
           status: 'APPROVED', approvedById: apiKey.createdById, approvedAt: now,
           uploadedById: apiKey.createdById, apiKeyId: apiKey.id,
           // Seed the history with the stage it arrived on, so the timeline is
@@ -645,8 +647,7 @@ export async function POST(req: NextRequest) {
               name: d.name, email: d.email.toLowerCase(), phone: d.phone,
               city: resolved.city, state: resolved.state, course: resolved.course, college,
               campaign: d.leadCode,
-              leadType: d.leadType, leadOrigin: d.leadOrigin, leadConfirmation: d.leadConfirmation,
-              leadStage: canonicalStage(d.leadStage), leadVerification: d.leadVerification,
+              leadStage: canonicalStage(d.leadStage),
               // Same rule as the single-lead path, read from the prebuilt map so
               // a bulk push does not fire one query per lead.
               dataCallingType: callingTypeByIndex.get(index) ?? null,
@@ -655,7 +656,7 @@ export async function POST(req: NextRequest) {
               leadZone: maps.dropdownData.collegeAttributeMap.get(d.college.trim().toLowerCase())?.zone ?? null,
               dealType: maps.dropdownData.collegeAttributeMap.get(d.college.trim().toLowerCase())?.dealType ?? null,
               primaryApplicationConfirm: 'No', primaryAdmissionConfirm: 'No',
-              uploadedAt: new Date(`${d.createdAt}T00:00:00.000Z`),
+              uploadedAt: d.createdAt ? new Date(`${d.createdAt}T00:00:00.000Z`) : new Date(),
               status: 'APPROVED', approvedById: apiKey.createdById, approvedAt: now,
               uploadedById: apiKey.createdById, apiKeyId: apiKey.id,
               ...(canonicalStage(d.leadStage)
