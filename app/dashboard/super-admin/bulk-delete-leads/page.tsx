@@ -32,9 +32,6 @@ interface UploadBatchOption {
 
 interface DropdownFilterOptions {
   campaigns: string[];
-  leadTypes: string[];
-  leadOrigins: string[];
-  leadZones: string[];
   cities: string[];
   states: string[];
   colleges: string[];
@@ -72,9 +69,6 @@ interface FilterState {
   state: string[];
   course: string[];
   college: string[];
-  leadType: string[];
-  leadOrigin: string[];
-  zone: string[];
   dateFrom: string;
   dateTo: string;
   search: string;
@@ -82,7 +76,7 @@ interface FilterState {
 
 const EMPTY_FILTERS: FilterState = {
   assignmentStatus: '', batchId: '', uploadedById: '', status: '', campaign: [], city: [], state: [],
-  course: [], college: [], leadType: [], leadOrigin: [], zone: [], dateFrom: '', dateTo: '', search: '',
+  course: [], college: [], dateFrom: '', dateTo: '', search: '',
 };
 
 const STATUS_LABEL: Record<PreviewLead['status'], string> = {
@@ -101,8 +95,7 @@ function hasAnyFilter(f: FilterState): boolean {
   return (
     f.batchId !== '' || f.uploadedById !== '' || f.status !== '' ||
     f.campaign.length > 0 || f.city.length > 0 || f.state.length > 0 ||
-    f.course.length > 0 || f.college.length > 0 || f.leadType.length > 0 ||
-    f.leadOrigin.length > 0 || f.zone.length > 0 ||
+    f.course.length > 0 || f.college.length > 0 ||
     f.dateFrom !== '' || f.dateTo !== '' || f.search.trim() !== ''
   );
 }
@@ -123,9 +116,6 @@ function buildParams(f: FilterState): URLSearchParams {
   if (f.state.length > 0) p.set('state', joinCsvFilterValues(f.state));
   if (f.course.length > 0) p.set('course', joinCsvFilterValues(f.course));
   if (f.college.length > 0) p.set('college', joinCsvFilterValues(f.college));
-  if (f.leadType.length > 0) p.set('leadType', joinCsvFilterValues(f.leadType));
-  if (f.leadOrigin.length > 0) p.set('leadOrigin', joinCsvFilterValues(f.leadOrigin));
-  if (f.zone.length > 0) p.set('zone', joinCsvFilterValues(f.zone));
   if (f.dateFrom) p.set('dateFrom', f.dateFrom);
   if (f.dateTo) p.set('dateTo', f.dateTo);
   if (f.search.trim()) p.set('search', f.search.trim());
@@ -178,9 +168,6 @@ function BulkDeleteLeadsContent() {
   const stateOptions      = useMemo(() => str2opt(dropdownOptions?.states),      [dropdownOptions]);
   const courseOptions     = useMemo(() => str2opt(dropdownOptions?.courses),     [dropdownOptions]);
   const collegeOptions    = useMemo(() => str2opt(dropdownOptions?.colleges),    [dropdownOptions]);
-  const leadTypeOptions   = useMemo(() => str2opt(dropdownOptions?.leadTypes),   [dropdownOptions]);
-  const leadOriginOptions = useMemo(() => str2opt(dropdownOptions?.leadOrigins), [dropdownOptions]);
-  const zoneOptions       = useMemo(() => str2opt(dropdownOptions?.leadZones),   [dropdownOptions]);
 
   const previewMutation = useMutation({
     mutationFn: async (f: FilterState) => {
@@ -402,27 +389,6 @@ function BulkDeleteLeadsContent() {
             <MultiSelectFilter
               placeholder="Any college" options={collegeOptions} selected={filters.college}
               onChange={(v) => set('college', v)} loading={optsLoading} triggerClassName="h-10 w-full"
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-xs">Lead Type</Label>
-            <MultiSelectFilter
-              placeholder="Any lead type" options={leadTypeOptions} selected={filters.leadType}
-              onChange={(v) => set('leadType', v)} loading={optsLoading} triggerClassName="h-10 w-full"
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-xs">Lead Origin</Label>
-            <MultiSelectFilter
-              placeholder="Any lead origin" options={leadOriginOptions} selected={filters.leadOrigin}
-              onChange={(v) => set('leadOrigin', v)} loading={optsLoading} triggerClassName="h-10 w-full"
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-xs">Zone</Label>
-            <MultiSelectFilter
-              placeholder="Any zone" options={zoneOptions} selected={filters.zone}
-              onChange={(v) => set('zone', v)} loading={optsLoading} triggerClassName="h-10 w-full"
             />
           </div>
           <div className="space-y-1.5">
