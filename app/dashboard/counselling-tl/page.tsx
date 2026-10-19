@@ -29,7 +29,6 @@ interface Lead {
   city?: string | null; state?: string | null;
   course?: string | null; college?: string | null; campaign?: string | null;
   /** Read live from the college by /api/leads — 'Client' | 'Non Client' | 'NA'. */
-  clientType?: string | null;
   status: string; createdAt: string;
   assignedTo?: { id: string; name: string } | null;
   assignedBy?: { id: string; name: string } | null;
@@ -722,11 +721,6 @@ const FILTER_GROUPS: { group: string; filters: FilterDef[] }[] = [
     group: 'Lead Source',
     filters: [
       { key: 'campaign',   label: 'Lead Source'  },
-      { key: 'leadType',   label: 'Lead Type'   },
-      { key: 'leadOrigin', label: 'Lead Origin' },
-      { key: 'zone',       label: 'Zone'        },
-      { key: 'dataCallingType', label: 'Data Calling Type' },
-      { key: 'clientType',      label: 'Client Type'       },
     ],
   },
   {
@@ -801,11 +795,6 @@ export default function CounsellingTLPage() {
   const [campaignFilters,   setCampaignFilters]   = useState<string[]>([]);
   const [courseFilters,     setCourseFilters]     = useState<string[]>([]);
   const [collegeFilters,    setCollegeFilters]    = useState<string[]>([]);
-  const [leadTypeFilters,   setLeadTypeFilters]   = useState<string[]>([]);
-  const [leadOriginFilters, setLeadOriginFilters] = useState<string[]>([]);
-  const [dataCallingTypeFilters, setDataCallingTypeFilters] = useState<string[]>([]);
-  const [clientTypeFilters, setClientTypeFilters] = useState<string[]>([]);
-  const [zoneFilters,       setZoneFilters]       = useState<string[]>([]);
   const [feedbackFilter,    setFeedbackFilter]    = useState<string[]>([]);
   const [dateFrom,          setDateFrom]          = useState('');
   const [dateTo,            setDateTo]            = useState('');
@@ -845,7 +834,7 @@ export default function CounsellingTLPage() {
     setSelectedIds([]);
     setAllFilteredSelected(false);
     lastClickedIdxRef.current = -1;
-  }, [search, assignmentFilter, cityFilters, stateFilters, campaignFilters, courseFilters, collegeFilters, leadTypeFilters, leadOriginFilters, zoneFilters, dataCallingTypeFilters, clientTypeFilters, agentFilters, feedbackFilter, dateFrom, dateTo, updatedFrom, updatedTo, limit]);
+  }, [search, assignmentFilter, cityFilters, stateFilters, campaignFilters, courseFilters, collegeFilters, agentFilters, feedbackFilter, dateFrom, dateTo, updatedFrom, updatedTo, limit]);
 
   // ── Data queries ──────────────────────────────────────────────────────────────
 
@@ -856,7 +845,7 @@ export default function CounsellingTLPage() {
   });
 
   const { data, isLoading, isFetching, refetch } = useQuery({
-    queryKey: ['tl-leads', { search, assignmentFilter, cityFilters, stateFilters, campaignFilters, courseFilters, collegeFilters, leadTypeFilters, leadOriginFilters, zoneFilters, dataCallingTypeFilters, clientTypeFilters, agentFilters, feedbackFilter, dateFrom, dateTo, updatedFrom, updatedTo, page, limit }],
+    queryKey: ['tl-leads', { search, assignmentFilter, cityFilters, stateFilters, campaignFilters, courseFilters, collegeFilters, agentFilters, feedbackFilter, dateFrom, dateTo, updatedFrom, updatedTo, page, limit }],
     queryFn: () => {
       const p = new URLSearchParams({ page: String(page), limit: String(limit), status: 'APPROVED' });
       if (search) p.set('search', search);
@@ -869,11 +858,6 @@ export default function CounsellingTLPage() {
       if (campaignFilters.length > 0)   p.set('campaign',     joinCsvFilterValues(campaignFilters));
       if (courseFilters.length > 0)     p.set('course',       joinCsvFilterValues(courseFilters));
       if (collegeFilters.length > 0)    p.set('college',      joinCsvFilterValues(collegeFilters));
-      if (leadTypeFilters.length > 0)   p.set('leadType',     joinCsvFilterValues(leadTypeFilters));
-      if (leadOriginFilters.length > 0) p.set('leadOrigin',   joinCsvFilterValues(leadOriginFilters));
-      if (dataCallingTypeFilters.length > 0) p.set('dataCallingType', joinCsvFilterValues(dataCallingTypeFilters));
-      if (clientTypeFilters.length > 0) p.set('clientType', joinCsvFilterValues(clientTypeFilters));
-      if (zoneFilters.length > 0)       p.set('zone',         joinCsvFilterValues(zoneFilters));
       if (agentFilters.length > 0)      p.set('assignedToId', agentFilters.join(','));
       if (feedbackFilter.includes('__fresh__') && feedbackFilter.length === 1) {
         p.set('feedbackTab', 'fresh');
@@ -961,11 +945,6 @@ export default function CounsellingTLPage() {
     campaignFilters.forEach((v)   => chips.push({ key: `campaign-${v}`,    label: `Campaign: ${v}`,    onRemove: () => setCampaignFilters((p)   => p.filter((x) => x !== v)) }));
     courseFilters.forEach((v)     => chips.push({ key: `course-${v}`,      label: `Course: ${v}`,      onRemove: () => setCourseFilters((p)     => p.filter((x) => x !== v)) }));
     collegeFilters.forEach((v)    => chips.push({ key: `college-${v}`,     label: `College: ${v}`,     onRemove: () => setCollegeFilters((p)    => p.filter((x) => x !== v)) }));
-    leadTypeFilters.forEach((v)   => chips.push({ key: `leadType-${v}`,    label: `Type: ${v}`,        onRemove: () => setLeadTypeFilters((p)   => p.filter((x) => x !== v)) }));
-    leadOriginFilters.forEach((v) => chips.push({ key: `leadOrigin-${v}`,  label: `Origin: ${v}`,      onRemove: () => setLeadOriginFilters((p) => p.filter((x) => x !== v)) }));
-    dataCallingTypeFilters.forEach((v) => chips.push({ key: `dct-${v}`, label: `Calling Type: ${v}`, onRemove: () => setDataCallingTypeFilters((p) => p.filter((x) => x !== v)) }));
-    clientTypeFilters.forEach((v) => chips.push({ key: `ct-${v}`, label: `Client Type: ${v}`, onRemove: () => setClientTypeFilters((p) => p.filter((x) => x !== v)) }));
-    zoneFilters.forEach((v)       => chips.push({ key: `zone-${v}`,        label: `Zone: ${v}`,        onRemove: () => setZoneFilters((p)       => p.filter((x) => x !== v)) }));
     feedbackFilter.forEach((v) => {
       const fbLabel = v === '__fresh__'
         ? 'Fresh'
@@ -985,7 +964,7 @@ export default function CounsellingTLPage() {
       });
     });
     return chips;
-  }, [assignmentFilter, cityFilters, stateFilters, campaignFilters, courseFilters, collegeFilters, leadTypeFilters, leadOriginFilters, zoneFilters, dataCallingTypeFilters, clientTypeFilters, feedbackFilter, feedbackOptions, dateFrom, dateTo, updatedFrom, updatedTo, agentFilters, agents]);
+  }, [assignmentFilter, cityFilters, stateFilters, campaignFilters, courseFilters, collegeFilters, feedbackFilter, feedbackOptions, dateFrom, dateTo, updatedFrom, updatedTo, agentFilters, agents]);
 
   function clearAllFilters() {
     setAssignmentFilter('all');
@@ -994,11 +973,6 @@ export default function CounsellingTLPage() {
     setCampaignFilters([]);
     setCourseFilters([]);
     setCollegeFilters([]);
-    setLeadTypeFilters([]);
-    setLeadOriginFilters([]);
-    setDataCallingTypeFilters([]);
-    setClientTypeFilters([]);
-    setZoneFilters([]);
     setFeedbackFilter([]);
     setDateFrom('');
     setDateTo('');
@@ -1062,11 +1036,6 @@ export default function CounsellingTLPage() {
     if (campaignFilters.length > 0)   p.set('campaign',     joinCsvFilterValues(campaignFilters));
     if (courseFilters.length > 0)     p.set('course',       joinCsvFilterValues(courseFilters));
     if (collegeFilters.length > 0)    p.set('college',      joinCsvFilterValues(collegeFilters));
-    if (leadTypeFilters.length > 0)   p.set('leadType',     joinCsvFilterValues(leadTypeFilters));
-    if (leadOriginFilters.length > 0) p.set('leadOrigin',   joinCsvFilterValues(leadOriginFilters));
-    if (dataCallingTypeFilters.length > 0) p.set('dataCallingType', joinCsvFilterValues(dataCallingTypeFilters));
-    if (clientTypeFilters.length > 0) p.set('clientType', joinCsvFilterValues(clientTypeFilters));
-    if (zoneFilters.length > 0)       p.set('zone',         joinCsvFilterValues(zoneFilters));
     if (agentFilters.length > 0)      p.set('assignedToId', agentFilters.join(','));
     if (feedbackFilter.includes('__fresh__') && feedbackFilter.length === 1) {
       p.set('feedbackTab', 'fresh');
@@ -1304,36 +1273,6 @@ export default function CounsellingTLPage() {
                   <MultiSelectFilter placeholder="All Campaigns" options={filterOptions?.campaigns ?? []} selected={campaignFilters} onChange={setCampaignFilters} />
                 </div>
               )}
-              {selectedFilters.includes('leadType') && (
-                <div className="flex flex-col gap-1">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Lead Type</span>
-                  <MultiSelectFilter placeholder="All Types" options={filterOptions?.leadTypes ?? []} selected={leadTypeFilters} onChange={setLeadTypeFilters} />
-                </div>
-              )}
-              {selectedFilters.includes('leadOrigin') && (
-                <div className="flex flex-col gap-1">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Lead Origin</span>
-                  <MultiSelectFilter placeholder="All Origins" options={filterOptions?.leadOrigins ?? []} selected={leadOriginFilters} onChange={setLeadOriginFilters} />
-                </div>
-              )}
-              {selectedFilters.includes('zone') && (
-                <div className="flex flex-col gap-1">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Zone</span>
-                  <MultiSelectFilter placeholder="All Zones" options={filterOptions?.leadZones ?? []} selected={zoneFilters} onChange={setZoneFilters} />
-                </div>
-              )}
-              {selectedFilters.includes('dataCallingType') && (
-                <div className="flex flex-col gap-1">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Data Calling Type</span>
-                  <MultiSelectFilter placeholder="All Calling Types" options={filterOptions?.dataCallingTypes ?? []} selected={dataCallingTypeFilters} onChange={setDataCallingTypeFilters} />
-                </div>
-              )}
-              {selectedFilters.includes('clientType') && (
-                <div className="flex flex-col gap-1">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Client Type</span>
-                  <MultiSelectFilter placeholder="All Client Types" options={filterOptions?.clientTypes ?? []} selected={clientTypeFilters} onChange={setClientTypeFilters} />
-                </div>
-              )}
               {selectedFilters.includes('agent') && (
                 <div className="flex flex-col gap-1">
                   <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Counsellor</span>
@@ -1459,7 +1398,6 @@ export default function CounsellingTLPage() {
                     <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">City</th>
                     <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Course</th>
                     <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">College</th>
-                    <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Client Type</th>
                     <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Lead Source</th>
                     <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap min-w-[190px]">Assigned To</th>
                     <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">Calls</th>
@@ -1472,7 +1410,7 @@ export default function CounsellingTLPage() {
                   {canAssign && allPageSelected && totalCount > leads.length && (
                     <tr>
                       <td
-                        colSpan={canAssign ? 13 : 12}
+                        colSpan={canAssign ? 12 : 10}
                         className="border-b border-primary/20 bg-primary/5 py-2 text-center text-xs"
                       >
                         {allFilteredSelected ? (
@@ -1535,14 +1473,6 @@ export default function CounsellingTLPage() {
                         <td className="px-4 py-3 text-sm whitespace-nowrap">{lead.city ?? '—'}</td>
                         <td className="px-4 py-3 text-sm whitespace-nowrap max-w-[200px] truncate">{lead.course ?? '—'}</td>
                         <td className="px-4 py-3 text-sm whitespace-nowrap max-w-[220px] truncate" title={lead.college ?? undefined}>{lead.college ?? '—'}</td>
-                        {/* "NA" is a real answer — the college exists but nobody
-                            has said whether it is a client — so it is greyed
-                            rather than dashed, matching All Leads. */}
-                        <td className="px-4 py-3 text-sm whitespace-nowrap">
-                          {lead.clientType && lead.clientType !== 'NA'
-                            ? lead.clientType
-                            : <span className="text-muted-foreground/60">NA</span>}
-                        </td>
                         <td className="px-4 py-3 text-sm whitespace-nowrap max-w-[200px] truncate">{lead.campaign ?? '—'}</td>
                         <td className="px-4 py-3 max-w-[210px]">
                           <AssigneeCell name={lead.assignedTo?.name ?? null} />
@@ -1583,7 +1513,7 @@ export default function CounsellingTLPage() {
                   {leads.length === 0 && (
                     <tr>
                       <td
-                        colSpan={canAssign ? 13 : 12}
+                        colSpan={canAssign ? 12 : 10}
                         className="py-12 text-center text-muted-foreground"
                       >
                         No approved leads match your filters.
