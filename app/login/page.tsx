@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/components/ui/use-toast';
+import { LoginShowcase } from '@/components/login/login-showcase';
 
 const loginSchema = z.object({
   email: z.string().email('Invalid email address'),
@@ -174,49 +175,59 @@ function GoogleMark() {
 
 export default function LoginPage() {
   return (
-    <div className="relative flex min-h-screen items-center justify-center overflow-hidden p-4
-      bg-gradient-to-br from-slate-100 via-blue-50 to-indigo-100
-      dark:from-slate-950 dark:via-slate-900 dark:to-slate-950">
+    <div className="flex min-h-screen">
+      {/* The branded half. Hidden below lg — on a phone it would push the
+          form off-screen, and the form is why anyone opened this page. */}
+      <LoginShowcase />
 
-      {/* Decorative blobs — visible in both modes, gently drifting */}
-      <div className="pointer-events-none absolute -top-32 -left-32 h-96 w-96 rounded-full
-        bg-blue-400/20 blur-3xl dark:bg-blue-500/10 animate-float" />
-      <div className="pointer-events-none absolute -bottom-32 -right-32 h-96 w-96 rounded-full
-        bg-indigo-400/20 blur-3xl dark:bg-indigo-500/10 animate-float" style={{ animationDelay: '1.5s' }} />
+      {/* ── Form half ─────────────────────────────────────────────────── */}
+      <div className="relative flex w-full flex-1 items-center justify-center overflow-hidden p-4
+        bg-gradient-to-br from-slate-50 via-blue-50/60 to-indigo-100/60
+        dark:from-slate-950 dark:via-slate-900 dark:to-slate-950">
 
-      <div className="relative z-10 w-full max-w-sm animate-fade-in-up">
+        {/* Ambient blobs, kept gentle so they sit behind the form rather
+            than competing with it. */}
+        <div className="pointer-events-none absolute -left-32 -top-32 h-96 w-96 rounded-full
+          bg-blue-400/15 blur-3xl motion-safe:animate-float dark:bg-blue-500/10" aria-hidden />
+        <div className="pointer-events-none absolute -bottom-32 -right-32 h-96 w-96 rounded-full
+          bg-indigo-400/15 blur-3xl motion-safe:animate-float dark:bg-indigo-500/10"
+          style={{ animationDelay: '1.5s' }} aria-hidden />
 
-        {/* Brand mark */}
-        <div className="mb-8 flex flex-col items-center gap-3">
-          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary shadow-lg shadow-primary/30 transition-transform duration-300 ease-premium hover:scale-105 hover:rotate-3">
-            <svg width="28" height="24" viewBox="0 0 30 26" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M18 0L7 13L18 26H24L13 13L24 0H18Z" fill="white" />
-              <path d="M9 0L0 13L9 26H15L6 13L15 0H9Z" fill="white" opacity="0.6" />
-            </svg>
+        <div className="relative z-10 w-full max-w-sm motion-safe:animate-fade-in-up">
+
+          {/* Brand mark. On lg the showcase already carries the branding, so
+              this collapses to just the greeting and the logo steps aside. */}
+          <div className="mb-8 flex flex-col items-center gap-3 lg:mb-6">
+            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary shadow-lg shadow-primary/30 transition-transform duration-300 ease-premium hover:rotate-3 hover:scale-105 lg:hidden">
+              <svg width="28" height="24" viewBox="0 0 30 26" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M18 0L7 13L18 26H24L13 13L24 0H18Z" fill="white" />
+                <path d="M9 0L0 13L9 26H15L6 13L15 0H9Z" fill="white" opacity="0.6" />
+              </svg>
+            </div>
+            <div className="text-center lg:hidden">
+              <h1 className="text-2xl font-bold tracking-tight text-foreground">KollegeApply</h1>
+              <p className="mt-0.5 text-sm text-muted-foreground">Online Counselling CRM</p>
+            </div>
           </div>
-          <div className="text-center">
-            <h1 className="text-2xl font-bold tracking-tight text-foreground">KollegeApply</h1>
-            <p className="mt-0.5 text-sm text-muted-foreground">Counselling CRM · Lead Management</p>
+
+          {/* Card */}
+          <div className="rounded-2xl border border-border/60 bg-card/90 shadow-xl shadow-black/5 backdrop-blur-sm
+            dark:border-border/40 dark:shadow-black/40">
+            <div className="px-6 pb-2 pt-6">
+              <h2 className="text-lg font-semibold text-card-foreground">Welcome back</h2>
+              <p className="mt-0.5 text-xs text-muted-foreground">Sign in to pick up where you left off</p>
+            </div>
+            <div className="px-6 pb-6 pt-4">
+              <Suspense fallback={<div className="h-40 animate-pulse rounded-lg bg-muted" />}>
+                <LoginFormInner />
+              </Suspense>
+            </div>
           </div>
+
+          <p className="mt-5 text-center text-xs text-muted-foreground">
+            Contact your administrator if you need access.
+          </p>
         </div>
-
-        {/* Card */}
-        <div className="rounded-2xl border border-border/60 bg-card shadow-xl shadow-black/5
-          dark:shadow-black/40 dark:border-border/40">
-          <div className="px-6 pt-6 pb-2">
-            <h2 className="text-lg font-semibold text-card-foreground">Sign in to your account</h2>
-            <p className="mt-0.5 text-xs text-muted-foreground">Enter your credentials below to continue</p>
-          </div>
-          <div className="px-6 pb-6 pt-4">
-            <Suspense fallback={<div className="h-40 animate-pulse rounded-lg bg-muted" />}>
-              <LoginFormInner />
-            </Suspense>
-          </div>
-        </div>
-
-        <p className="mt-5 text-center text-xs text-muted-foreground">
-          Contact your administrator if you need access.
-        </p>
       </div>
     </div>
   );

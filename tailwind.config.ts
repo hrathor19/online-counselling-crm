@@ -102,6 +102,13 @@ const config: Config = {
           '0%, 100%': { transform: 'scale(1)', opacity: '0.5' },
           '50%': { transform: 'scale(1.25)', opacity: '0.85' },
         },
+        // Login word cloud: a long, slow wander so the backdrop is never
+        // still but never asks to be looked at either.
+        drift: {
+          '0%, 100%': { transform: 'translate(0, 0)' },
+          '33%': { transform: 'translate(10px, -14px)' },
+          '66%': { transform: 'translate(-8px, 8px)' },
+        },
       },
       animation: {
         'accordion-down': 'accordion-down 0.2s ease-out',
@@ -114,6 +121,7 @@ const config: Config = {
         'shimmer-sweep': 'shimmer-sweep 3.5s ease-in-out infinite',
         'float-particle': 'float-particle 4s ease-in-out infinite',
         'pulse-glow': 'pulse-glow 2.4s ease-in-out infinite',
+        drift: 'drift 18s ease-in-out infinite',
       },
       transitionTimingFunction: {
         premium: 'cubic-bezier(0.22, 1, 0.36, 1)',
