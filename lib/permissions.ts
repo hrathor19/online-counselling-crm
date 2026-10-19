@@ -9,16 +9,16 @@ const DEFAULT_PERMISSIONS: Record<Role, Feature[]> = {
   SUPER_ADMIN: Object.values(Feature),
   // MASK_UNMASK_DATA now means "sees masked data", so REPORTS no longer carries
   // it — they read real values today and still do.
-  REPORTS: [Feature.VIEW_REPORTS, Feature.DOWNLOAD_DATA, Feature.APPROVE_LEADS],
-  OPERATIONS: [Feature.UPLOAD_LEADS, Feature.MASK_UNMASK_DATA],
+  REPORTS: [Feature.VIEW_REPORTS, Feature.DOWNLOAD_DATA, Feature.APPROVE_LEADS, Feature.ADD_SINGLE_LEAD],
+  OPERATIONS: [Feature.UPLOAD_LEADS, Feature.MASK_UNMASK_DATA, Feature.ADD_SINGLE_LEAD],
   // VIEW_REPORTS included because TLs have always had Analytics/performance
   // access (previously via hardcoded role lists in those routes) — the matrix
   // just didn't reflect it. Toggle it off in Manage Permissions to revoke.
   // Masked by default because a TL's CSV export is already masked today (they
   // hold DOWNLOAD_DATA but not MASK_UNMASK_DATA under the old meaning) — this
   // keeps that true rather than quietly widening what they can see.
-  COUNSELLING_TL: [Feature.VIEW_LEADS, Feature.ASSIGN_LEADS, Feature.VIEW_REPORTS, Feature.MASK_UNMASK_DATA],
-  COUNSELLING_AGENT: [Feature.VIEW_LEADS, Feature.SUBMIT_FEEDBACK],
+  COUNSELLING_TL: [Feature.VIEW_LEADS, Feature.ASSIGN_LEADS, Feature.VIEW_REPORTS, Feature.MASK_UNMASK_DATA, Feature.ADD_SINGLE_LEAD],
+  COUNSELLING_AGENT: [Feature.VIEW_LEADS, Feature.SUBMIT_FEEDBACK, Feature.ADD_SINGLE_LEAD],
 };
 
 export async function hasPermission(role: Role, feature: Feature): Promise<boolean> {

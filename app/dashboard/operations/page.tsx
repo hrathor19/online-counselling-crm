@@ -2,19 +2,13 @@
 
 import { useState, useCallback, useRef, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useForm } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
-import { z } from 'zod';
 import {
   Upload, FileSpreadsheet, X, CheckCircle, Loader2, AlertCircle,
   UserPlus, Download, AlertTriangle, CheckCircle2, Gauge,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
@@ -26,21 +20,8 @@ import {
 import { formatDateTime } from '@/lib/utils';
 import { usePermissions } from '@/lib/usePermissions';
 import { cn } from '@/lib/utils';
-import { SearchableSelect, type SearchableSelectOption } from '@/components/shared/searchable-select';
-
-// ─── Single-lead form schema ──────────────────────────────────────────────────
-
-const singleLeadSchema = z.object({
-  name:       z.string().min(1, 'Name is required'),
-  email:      z.string().email('Invalid email'),
-  phone:      z.string().min(1, 'Phone is required'),
-  college:    z.string().min(1, 'College is required'),
-  city:       z.string().optional(),
-  state:      z.string().optional(),
-  course:     z.string().optional(),
-  campaign:   z.string().optional(),
-});
-type SingleLeadForm = z.infer<typeof singleLeadSchema>;
+import { type SearchableSelectOption } from '@/components/shared/searchable-select';
+import { AddLeadDialog } from '@/components/leads/add-lead-dialog';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -105,12 +86,6 @@ export default function OperationsPage() {
   // History pagination
   const [historyPage, setHistoryPage] = useState(1);
   const HISTORY_PAGE_SIZE = 25;
-
-  const {
-    register: regSingle, handleSubmit: handleSingleSubmit,
-    reset: resetSingle, formState: { errors: singleErrors },
-    setValue: setSingleValue, watch: watchSingle,
-  } = useForm<SingleLeadForm>({ resolver: zodResolver(singleLeadSchema) });
 
   // ── Validation data ───────────────────────────────────────────────────────────
   // College IDs come from local dropdown options (fast, always available).
@@ -218,36 +193,6 @@ export default function OperationsPage() {
       }
       setUploadResult(data);
       queryClient.invalidateQueries({ queryKey: ['upload-batches'] });
-    },
-  });
-
-  // ── Single-lead mutation ──────────────────────────────────────────────────────
-
-  const singleLeadMutation = useMutation({
-    mutationFn: (data: SingleLeadForm) =>
-      fetch('/api/leads', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
-      }).then((r) => r.json()),
-    onSuccess: (data) => {
-      if (data.error) {
-        toast({ variant: 'destructive', title: 'Failed to add lead', description: typeof data.error === 'string' ? data.error : 'Validation error' });
-        return;
-      }
-      // A merge created nothing — saying "Lead added" would have the operator
-      // looking for a new row that does not exist.
-      if (data.merged) {
-        toast({
-          title: 'Added to an existing lead',
-          description: `${data.name} had already enquired, so ${data.college} was added to their interests (${data.interestCount} in total).`,
-        });
-      } else {
-        toast({ title: 'Lead added', description: `${data.name} has been added successfully.` });
-      }
-      queryClient.invalidateQueries({ queryKey: ['leads'] });
-      setSingleLeadOpen(false);
-      resetSingle();
     },
   });
 
@@ -599,79 +544,7 @@ export default function OperationsPage() {
         </CardContent>
       </Card>
 
-      {/* ── Single Lead Dialog ── */}
-      <Dialog open={singleLeadOpen} onOpenChange={(v) => { if (!v) { setSingleLeadOpen(false); resetSingle(); } }}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>Add Single Lead</DialogTitle></DialogHeader>
-          <form onSubmit={handleSingleSubmit((data) => singleLeadMutation.mutate(data))} className="space-y-4">
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label>Name <span className="text-destructive">*</span></Label>
-                <Input {...regSingle('name')} placeholder="Full name" />
-                {singleErrors.name && <p className="text-xs text-destructive">{singleErrors.name.message}</p>}
-              </div>
-              <div className="space-y-1.5">
-                <Label>Email <span className="text-destructive">*</span></Label>
-                <Input {...regSingle('email')} type="email" placeholder="email@example.com" />
-                {singleErrors.email && <p className="text-xs text-destructive">{singleErrors.email.message}</p>}
-              </div>
-              <div className="space-y-1.5">
-                <Label>Phone <span className="text-destructive">*</span></Label>
-                <Input {...regSingle('phone')} placeholder="10-digit phone" />
-                {singleErrors.phone && <p className="text-xs text-destructive">{singleErrors.phone.message}</p>}
-              </div>
-              <div className="space-y-1.5">
-                <Label>City</Label>
-                <SearchableSelect
-                  options={cityOptions}
-                  value={watchSingle('city') ?? ''}
-                  onChange={(v) => setSingleValue('city', v, { shouldValidate: true })}
-                  placeholder="— Select City —"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label>State</Label>
-                <SearchableSelect
-                  options={stateOptions}
-                  value={watchSingle('state') ?? ''}
-                  onChange={(v) => setSingleValue('state', v, { shouldValidate: true })}
-                  placeholder="— Select State —"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Course</Label>
-                <SearchableSelect
-                  options={courseOptions}
-                  value={watchSingle('course') ?? ''}
-                  onChange={(v) => setSingleValue('course', v, { shouldValidate: true })}
-                  placeholder="— Select Course —"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label>College <span className="text-destructive">*</span></Label>
-                <SearchableSelect
-                  options={collegeOptions}
-                  value={watchSingle('college') ?? ''}
-                  onChange={(v) => setSingleValue('college', v, { shouldValidate: true })}
-                  placeholder="— Select College —"
-                />
-                {singleErrors.college && <p className="text-xs text-destructive">{singleErrors.college.message}</p>}
-              </div>
-              <div className="space-y-1.5">
-                <Label>Lead Source</Label>
-                <Input {...regSingle('campaign')} placeholder="e.g. Google_Ads" />
-              </div>
-            </div>
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => { setSingleLeadOpen(false); resetSingle(); }}>Cancel</Button>
-              <Button type="submit" disabled={singleLeadMutation.isPending}>
-                {singleLeadMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                Add Lead
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+      <AddLeadDialog open={singleLeadOpen} onOpenChange={setSingleLeadOpen} />
 
       {/* ── Upload History ── */}
       <Card>

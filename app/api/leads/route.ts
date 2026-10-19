@@ -29,8 +29,14 @@ export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const canUpload = await hasPermission(session.user.role, Feature.UPLOAD_LEADS);
-  if (!canUpload) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  // Either permission is enough. ADD_SINGLE_LEAD is the one every role holds
+  // by default; UPLOAD_LEADS is still accepted so a role that can import a
+  // whole CSV is never refused the single-lead form, whatever the matrix says.
+  const [canAddOne, canUpload] = await Promise.all([
+    hasPermission(session.user.role, Feature.ADD_SINGLE_LEAD),
+    hasPermission(session.user.role, Feature.UPLOAD_LEADS),
+  ]);
+  if (!canAddOne && !canUpload) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
   const body = await req.json();
   const parsed = singleLeadSchema.safeParse(body);

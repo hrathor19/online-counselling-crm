@@ -23,7 +23,8 @@ const FEATURES = [
   // Enum name kept (renaming costs an ALTER TYPE plus a data migration for no
   // gain); the label says what the switch actually does.
   { key: 'MASK_UNMASK_DATA', label: 'Mask Data (hide email & phone)' },
-  { key: 'UPLOAD_LEADS', label: 'Upload Leads' },
+  { key: 'UPLOAD_LEADS', label: 'Upload Leads (page + bulk CSV)' },
+  { key: 'ADD_SINGLE_LEAD', label: 'Add Single Lead (+ in header)' },
   { key: 'APPROVE_LEADS', label: 'Approve Leads' },
   { key: 'ASSIGN_LEADS', label: 'Assign Leads' },
   { key: 'VIEW_LEADS', label: 'View Leads' },

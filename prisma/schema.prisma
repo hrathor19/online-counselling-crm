@@ -22,6 +22,11 @@ enum Feature {
   DOWNLOAD_DATA
   MASK_UNMASK_DATA
   UPLOAD_LEADS
+  /// Adding ONE lead by hand, from the + in the header. Deliberately separate
+  /// from UPLOAD_LEADS, which also carries the Upload Leads page and bulk CSV
+  /// import — every role may add a lead they just spoke to without thereby
+  /// being able to import a file of ten thousand.
+  ADD_SINGLE_LEAD
   APPROVE_LEADS
   ASSIGN_LEADS
   VIEW_LEADS

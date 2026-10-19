@@ -3,10 +3,12 @@
 import { usePathname } from 'next/navigation';
 import { useTheme } from 'next-themes';
 import { useEffect, useState } from 'react';
-import { Sun, Moon, Menu } from 'lucide-react';
+import { Sun, Moon, Menu, Plus } from 'lucide-react';
 import { NotificationBell } from '@/components/notifications/notification-bell';
 import { PunchClockWidget } from '@/components/attendance/punch-clock-widget';
 import { GlobalSearch } from '@/components/shared/global-search';
+import { AddLeadDialog } from '@/components/leads/add-lead-dialog';
+import { usePermissions } from '@/lib/usePermissions';
 
 const PAGE_TITLES: Record<string, string> = {
   '/dashboard': 'Dashboard',
@@ -38,6 +40,22 @@ export function Header({ onMenuClick }: { onMenuClick?: () => void }) {
   const pathname = usePathname();
   const title = PAGE_TITLES[pathname] ?? 'Counselling CRM';
   const { resolvedTheme, setTheme } = useTheme();
+  const { can, permissions } = usePermissions();
+  const [addLeadOpen, setAddLeadOpen] = useState(false);
+
+  /**
+   * Shown by default, hidden only on an explicit "no".
+   *
+   * Permissions arrive from a fetch, so `can()` answers false for the first
+   * moment of every page load. Gating on it directly made the + pop in a beat
+   * after the rest of the header — and this button is meant to be as reliably
+   * present as the search box beside it. Every role holds ADD_SINGLE_LEAD by
+   * default, so showing it until told otherwise is right far more often than
+   * not, and a Super Admin who switches it off still sees it disappear once
+   * the answer lands. UPLOAD_LEADS also passes, matching what the API accepts.
+   */
+  const permissionsKnown = Object.keys(permissions).length > 0;
+  const canAddLead = !permissionsKnown || can('ADD_SINGLE_LEAD') || can('UPLOAD_LEADS');
 
   // Avoid hydration mismatch — only render the button after mount
   const [mounted, setMounted] = useState(false);
@@ -61,6 +79,18 @@ export function Header({ onMenuClick }: { onMenuClick?: () => void }) {
 
       <div className="flex items-center gap-1.5 md:gap-3 shrink-0">
         <GlobalSearch />
+
+        {canAddLead && (
+          <button
+            onClick={() => setAddLeadOpen(true)}
+            aria-label="Add a single lead"
+            title="Add a single lead"
+            className="group flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-transparent text-muted-foreground transition-colors hover:border-primary/30 hover:bg-primary/10 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <Plus className="h-5 w-5 transition-transform duration-200 group-hover:scale-110" />
+          </button>
+        )}
+
         <PunchClockWidget />
         <NotificationBell />
 
@@ -94,6 +124,10 @@ export function Header({ onMenuClick }: { onMenuClick?: () => void }) {
         </button>
         )}
       </div>
+
+      {/* Mounted once here rather than per page, so the + works identically
+          everywhere and there is only one copy of this form in the app. */}
+      <AddLeadDialog open={addLeadOpen} onOpenChange={setAddLeadOpen} />
     </header>
   );
 }
