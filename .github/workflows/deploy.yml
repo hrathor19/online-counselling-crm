@@ -23,7 +23,12 @@ jobs:
             cd ~/app
             git checkout -- package-lock.json 2>/dev/null || true
             git pull origin main
-            npm ci
+            # `npm install`, not `npm ci`. ci deletes node_modules and
+            # reinstalls from scratch, which needs the old and new trees on
+            # disk at once — on this 8GB volume, shared with a 3.6GB swapfile,
+            # that filled the disk three times and killed the deploy. install
+            # is incremental and reads the same lockfile.
+            npm install
             npx prisma generate
             # The schema is kept in step with `db push`, not migrations — the
             # migrations folder stopped being maintained long ago and running
@@ -31,5 +36,11 @@ jobs:
             # deployment notes for the one line of expected `migrate diff`
             # drift (the custom LID sequence).
             npx prisma db push --accept-data-loss
+            # Gives leads created before the merge feature their first
+            # LeadInterest row. Without it their next enquiry is recorded as
+            # interest #1 rather than #2, so the "+1" badge never appears and
+            # the count stays one short for good. Idempotent — a no-op once
+            # every lead has history.
+            npm run db:backfill-interests
             NODE_OPTIONS='--max-old-space-size=2048' npm run build
             pm2 restart online-crm --update-env
