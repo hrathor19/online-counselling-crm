@@ -162,7 +162,9 @@ export function LoginShowcase() {
 
       {/* ── Rotating slogan ───────────────────────────────────────────── */}
       <div className="relative z-10 px-12">
-        <div className="min-h-[9.5rem]">
+        {/* Reserves room for the tallest slogan at this size — without it
+            the pips below jump on every rotation. */}
+        <div className="min-h-[13rem] xl:min-h-[15.5rem]">
           <AnimatePresence mode="wait">
             <motion.h2
               key={slogan}
@@ -170,7 +172,7 @@ export function LoginShowcase() {
               animate={{ opacity: 1, y: 0 }}
               exit={reduced ? undefined : { opacity: 0, y: -18 }}
               transition={{ duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
-              className="max-w-xl text-4xl font-bold leading-[1.15] tracking-tight text-white xl:text-[2.75rem]"
+              className="max-w-3xl text-[3.375rem] font-bold leading-[1.12] tracking-tight text-white xl:text-[4.125rem]"
             >
               {current.lead}
               <span className="block bg-gradient-to-r from-sky-300 to-indigo-300 bg-clip-text text-transparent">
