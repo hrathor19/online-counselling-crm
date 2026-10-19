@@ -1,7 +1,8 @@
 'use client';
 
-import { motion, useReducedMotion } from 'framer-motion';
-import { BarChart3, GraduationCap, Quote, Settings2, TrendingUp, UserRound, Users } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
+import { BarChart3, GraduationCap, Quote, Settings2, TrendingUp, UserRound } from 'lucide-react';
 import { BrandLogo } from '@/components/shared/brand-logo';
 import { DashboardMockup } from './dashboard-mockup';
 
@@ -13,20 +14,15 @@ import { DashboardMockup } from './dashboard-mockup';
  *
  * Everything that moves is behind `motion-safe:` or framer-motion's
  * useReducedMotion. Counsellors open this screen every morning, so the
- * animation settles on arrival rather than looping forever.
+ * movement is ambient rather than attention-seeking.
  */
 
-/**
- * Headline figures.
- *
- * Marketing numbers, not live ones — nothing here reads the database. They sit
- * in one place so they can be corrected without hunting through markup.
- */
-const STATS = [
-  { value: '90L+', label: 'Leads Managed',      ring: 'ring-blue-400/25',    text: 'text-blue-300' },
-  { value: '1Cr+', label: 'Calls Tracked',      ring: 'ring-emerald-400/25', text: 'text-emerald-300' },
-  { value: '200+', label: 'Active Counsellors', ring: 'ring-amber-400/25',   text: 'text-amber-300' },
-  { value: '50%',  label: 'Higher Conversions', ring: 'ring-violet-400/25',  text: 'text-violet-300' },
+const SLOGANS = [
+  { lead: 'Every conversation', tail: 'is an admission waiting to happen.' },
+  { lead: 'Turn enquiries', tail: 'into enrolments.' },
+  { lead: 'One more follow-up.', tail: 'One more student guided.' },
+  { lead: 'Counsel first.', tail: 'The application follows.' },
+  { lead: 'Effort compounds.', tail: 'So do conversions.' },
 ];
 
 const FEATURES = [
@@ -36,8 +32,17 @@ const FEATURES = [
   { Icon: TrendingUp, label: ['Real-time', 'Reports'],      tint: 'bg-violet-500/90' },
 ];
 
+const ROTATE_MS = 4200;
+
 export function LoginShowcase() {
   const reduced = useReducedMotion();
+  const [slogan, setSlogan] = useState(0);
+
+  useEffect(() => {
+    if (reduced) return;
+    const t = setInterval(() => setSlogan((i) => (i + 1) % SLOGANS.length), ROTATE_MS);
+    return () => clearInterval(t);
+  }, [reduced]);
 
   /** One shared entrance, staggered by index. */
   const rise = (i: number) =>
@@ -48,6 +53,8 @@ export function LoginShowcase() {
           animate: { opacity: 1, y: 0 },
           transition: { duration: 0.6, delay: 0.06 * i, ease: [0.22, 1, 0.36, 1] as const },
         };
+
+  const current = SLOGANS[slogan];
 
   return (
     <div className="relative hidden overflow-hidden bg-[#0a1f3d] lg:flex lg:w-[62%] xl:w-[64%]">
@@ -61,7 +68,7 @@ export function LoginShowcase() {
       />
 
       {/* ── Copy column ───────────────────────────────────────────────── */}
-      <div className="relative z-20 flex w-full max-w-[620px] shrink-0 flex-col justify-center gap-6 p-10 xl:max-w-[680px] xl:p-14">
+      <div className="relative z-20 flex w-full max-w-[620px] shrink-0 flex-col justify-center gap-7 p-10 xl:max-w-[680px] xl:p-14">
         <motion.div {...rise(0)} className="flex items-center gap-3">
           <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-white shadow-lg shadow-black/25">
             <BrandLogo className="h-6 w-6" />
@@ -83,13 +90,40 @@ export function LoginShowcase() {
           </span>
         </motion.div>
 
-        <motion.h1 {...rise(2)} className="text-[2.5rem] font-bold leading-[1.1] tracking-tight text-white xl:text-[3rem]">
-          Manage Leads.
-          <br />
-          Enable Counsellors.
-          <br />
-          <span className="text-sky-400">Drive Admissions.</span>
-        </motion.h1>
+        {/* ── Rotating slogan ─────────────────────────────────────────── */}
+        <motion.div {...rise(2)}>
+          {/* Reserves room for the tallest slogan — without it the pips
+              below jump on every rotation. */}
+          <div className="min-h-[11.5rem] xl:min-h-[13.5rem]">
+            <AnimatePresence mode="wait">
+              <motion.h1
+                key={slogan}
+                initial={reduced ? false : { opacity: 0, y: 18 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={reduced ? undefined : { opacity: 0, y: -18 }}
+                transition={{ duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
+                className="text-[2.5rem] font-bold leading-[1.12] tracking-tight text-white xl:text-[3rem]"
+              >
+                {current.lead}
+                <span className="block bg-gradient-to-r from-sky-300 to-indigo-300 bg-clip-text text-transparent">
+                  {current.tail}
+                </span>
+              </motion.h1>
+            </AnimatePresence>
+          </div>
+
+          {/* Progress pips — also the only hint that the text rotates. */}
+          <div className="mt-5 flex gap-1.5">
+            {SLOGANS.map((s, i) => (
+              <span
+                key={s.lead}
+                className={`h-1 rounded-full transition-all duration-500 ${
+                  i === slogan ? 'w-7 bg-sky-300' : 'w-2.5 bg-white/25'
+                }`}
+              />
+            ))}
+          </div>
+        </motion.div>
 
         <motion.p {...rise(3)} className="max-w-xl text-[15px] leading-relaxed text-white/60">
           KollegeApply&apos;s counselling CRM helps education teams streamline lead management,
@@ -112,20 +146,7 @@ export function LoginShowcase() {
           ))}
         </motion.div>
 
-        {/* Stats */}
-        <motion.div {...rise(5)} className="flex flex-wrap gap-3">
-          {STATS.map((s) => (
-            <div
-              key={s.label}
-              className={`rounded-xl bg-white/[0.06] px-4 py-3 ring-1 ${s.ring} backdrop-blur-sm`}
-            >
-              <p className={`text-[21px] font-bold leading-none ${s.text}`}>{s.value}</p>
-              <p className="mt-1.5 text-[11px] text-white/55">{s.label}</p>
-            </div>
-          ))}
-        </motion.div>
-
-        <motion.div {...rise(6)} className="flex max-w-xl gap-3 rounded-xl border border-white/10 bg-white/[0.04] p-4">
+        <motion.div {...rise(5)} className="flex max-w-xl gap-3 rounded-xl border border-white/10 bg-white/[0.04] p-4">
           <Quote className="h-5 w-5 shrink-0 fill-white/20 text-white/20" />
           <p className="text-[13px] leading-relaxed text-white/65">
             &ldquo;A complete CRM built for education counsellors — from lead intake to
@@ -154,42 +175,6 @@ export function LoginShowcase() {
               <path d="M138 42 L148 56 L132 56" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           </div>
-
-          {/* Floating chips */}
-          <motion.div
-            initial={reduced ? false : { opacity: 0, y: 14 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, delay: 0.85 }}
-            className="absolute -bottom-10 left-4 flex items-center gap-2.5 rounded-xl border border-emerald-400/25 bg-[#0d2a4a]/90 px-4 py-3 shadow-xl backdrop-blur-sm"
-          >
-            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500/20">
-              <Users className="h-4 w-4 text-emerald-300" />
-            </span>
-            <span>
-              <span className="block text-[15px] font-bold leading-none text-white">200+</span>
-              <span className="mt-1 block text-[11px] text-white/55">Active Counsellors</span>
-            </span>
-          </motion.div>
-
-          <motion.div
-            initial={reduced ? false : { opacity: 0, y: 14 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, delay: 1 }}
-            className="absolute -bottom-24 left-[300px] flex items-center gap-2.5 rounded-xl border border-indigo-400/25 bg-[#0d2a4a]/90 px-4 py-3 shadow-xl backdrop-blur-sm"
-          >
-            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-500/20">
-              <BarChart3 className="h-4 w-4 text-indigo-300" />
-            </span>
-            <span>
-              <span className="block text-[13px] font-semibold leading-none text-white">Real-time</span>
-              <span className="mt-1 block text-[11px] text-white/55">Performance Insights</span>
-            </span>
-          </motion.div>
-
-          {/* Dashes joining the two chips */}
-          <svg viewBox="0 0 150 40" className="absolute -bottom-14 left-[195px] h-10 w-36 text-white/20" aria-hidden>
-            <path d="M2 6 C 50 6, 90 30, 146 34" fill="none" stroke="currentColor" strokeWidth="1.4" strokeDasharray="5 5" strokeLinecap="round" />
-          </svg>
         </motion.div>
       </div>
     </div>
