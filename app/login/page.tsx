@@ -12,6 +12,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/components/ui/use-toast';
 import { LoginShowcase } from '@/components/login/login-showcase';
+import { BrandLogo } from '@/components/shared/brand-logo';
 
 const loginSchema = z.object({
   email: z.string().email('Invalid email address'),
@@ -198,11 +199,8 @@ export default function LoginPage() {
           {/* Brand mark. On lg the showcase already carries the branding, so
               this collapses to just the greeting and the logo steps aside. */}
           <div className="mb-8 flex flex-col items-center gap-3 lg:mb-6">
-            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary shadow-lg shadow-primary/30 transition-transform duration-300 ease-premium hover:rotate-3 hover:scale-105 lg:hidden">
-              <svg width="28" height="24" viewBox="0 0 30 26" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M18 0L7 13L18 26H24L13 13L24 0H18Z" fill="white" />
-                <path d="M9 0L0 13L9 26H15L6 13L15 0H9Z" fill="white" opacity="0.6" />
-              </svg>
+            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-card shadow-lg shadow-black/10 ring-1 ring-border/60 transition-transform duration-300 ease-premium hover:rotate-3 hover:scale-105 lg:hidden">
+              <BrandLogo className="h-8 w-8" />
             </div>
             <div className="text-center lg:hidden">
               <h1 className="text-2xl font-bold tracking-tight text-foreground">KollegeApply</h1>

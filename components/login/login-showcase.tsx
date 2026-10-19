@@ -3,9 +3,12 @@
 import { useEffect, useState } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import {
-  Award, BarChart3, BookOpen, Building2, CalendarCheck, FileCheck, FileText,
-  GraduationCap, Headphones, MessageSquare, PhoneCall, Target, TrendingUp, Trophy, Users,
+  Award, BarChart3, BookOpen, Briefcase, Building2, CalendarCheck, CheckCircle2,
+  ClipboardList, Clock, FileCheck, FileText, Globe2, GraduationCap, Headphones,
+  Laptop, Lightbulb, Mail, MessageSquare, NotebookPen, Percent, PhoneCall, PieChart,
+  School, Send, Sparkles, Star, Target, TrendingUp, Trophy, UserCheck, Users, Video,
 } from 'lucide-react';
+import { BrandLogo } from '@/components/shared/brand-logo';
 
 /**
  * The branded half of the login screen.
@@ -47,18 +50,44 @@ const PIPELINE = [
  * between the server and client render and flickers on hydration.
  */
 const ICONS = [
-  { Icon: GraduationCap, top: '7%',  left: '8%',  size: 46, opacity: 0.09, delay: '0s'    },
-  { Icon: PhoneCall,     top: '15%', left: '62%', size: 32, opacity: 0.07, delay: '2.1s'  },
-  { Icon: BookOpen,      top: '26%', left: '28%', size: 38, opacity: 0.06, delay: '4.3s'  },
-  { Icon: TrendingUp,    top: '21%', left: '82%', size: 42, opacity: 0.08, delay: '1.2s'  },
-  { Icon: Building2,     top: '38%', left: '12%', size: 36, opacity: 0.07, delay: '5.5s'  },
-  { Icon: FileText,      top: '45%', left: '70%', size: 30, opacity: 0.06, delay: '3.4s'  },
-  { Icon: Users,         top: '55%', left: '34%', size: 34, opacity: 0.05, delay: '6.2s'  },
-  { Icon: Award,         top: '58%', left: '84%', size: 40, opacity: 0.08, delay: '0.8s'  },
-  { Icon: CalendarCheck, top: '66%', left: '8%',  size: 32, opacity: 0.06, delay: '2.9s'  },
-  { Icon: BarChart3,     top: '72%', left: '56%', size: 44, opacity: 0.07, delay: '4.8s'  },
-  { Icon: MessageSquare, top: '80%', left: '26%', size: 28, opacity: 0.05, delay: '1.7s'  },
-  { Icon: Target,        top: '86%', left: '74%', size: 36, opacity: 0.07, delay: '3.9s'  },
+  // Top band
+  { Icon: GraduationCap, top: '5%',  left: '7%',  size: 44, opacity: 0.09, delay: '0s'    },
+  { Icon: PhoneCall,     top: '9%',  left: '34%', size: 28, opacity: 0.06, delay: '2.1s'  },
+  { Icon: TrendingUp,    top: '6%',  left: '58%', size: 40, opacity: 0.08, delay: '1.2s'  },
+  { Icon: Mail,          top: '13%', left: '82%', size: 30, opacity: 0.07, delay: '4.6s'  },
+  { Icon: Sparkles,      top: '17%', left: '20%', size: 24, opacity: 0.05, delay: '6.1s'  },
+  { Icon: School,        top: '19%', left: '68%', size: 34, opacity: 0.07, delay: '3.3s'  },
+
+  // Upper middle
+  { Icon: BookOpen,      top: '26%', left: '44%', size: 32, opacity: 0.06, delay: '4.3s'  },
+  { Icon: Laptop,        top: '24%', left: '88%', size: 30, opacity: 0.06, delay: '0.7s'  },
+  { Icon: Building2,     top: '31%', left: '9%',  size: 36, opacity: 0.07, delay: '5.5s'  },
+  { Icon: Clock,         top: '34%', left: '62%', size: 26, opacity: 0.05, delay: '2.6s'  },
+  { Icon: PieChart,      top: '38%', left: '31%', size: 30, opacity: 0.06, delay: '7.2s'  },
+  { Icon: FileText,      top: '41%', left: '79%', size: 32, opacity: 0.07, delay: '3.4s'  },
+
+  // Middle — kept lighter and pushed right, so the slogan has clear air
+  { Icon: Star,          top: '47%', left: '93%', size: 22, opacity: 0.05, delay: '1.9s'  },
+  { Icon: UserCheck,     top: '52%', left: '70%', size: 34, opacity: 0.06, delay: '5.1s'  },
+  { Icon: Lightbulb,     top: '57%', left: '88%', size: 28, opacity: 0.06, delay: '2.3s'  },
+  { Icon: Users,         top: '60%', left: '46%', size: 32, opacity: 0.05, delay: '6.2s'  },
+
+  // Lower middle
+  { Icon: Award,         top: '63%', left: '12%', size: 38, opacity: 0.08, delay: '0.8s'  },
+  { Icon: CalendarCheck, top: '67%', left: '76%', size: 30, opacity: 0.06, delay: '2.9s'  },
+  { Icon: Percent,       top: '70%', left: '34%', size: 26, opacity: 0.06, delay: '4.1s'  },
+  { Icon: BarChart3,     top: '73%', left: '57%', size: 40, opacity: 0.07, delay: '4.8s'  },
+  { Icon: Video,         top: '76%', left: '90%', size: 28, opacity: 0.05, delay: '1.4s'  },
+
+  // Bottom band
+  { Icon: MessageSquare, top: '81%', left: '22%', size: 28, opacity: 0.05, delay: '1.7s'  },
+  { Icon: Target,        top: '84%', left: '68%', size: 34, opacity: 0.07, delay: '3.9s'  },
+  { Icon: NotebookPen,   top: '88%', left: '44%', size: 30, opacity: 0.06, delay: '5.8s'  },
+  { Icon: Briefcase,     top: '91%', left: '85%', size: 26, opacity: 0.05, delay: '2.7s'  },
+  { Icon: CheckCircle2,  top: '93%', left: '10%', size: 32, opacity: 0.06, delay: '6.6s'  },
+  { Icon: ClipboardList, top: '45%', left: '4%',  size: 24, opacity: 0.045, delay: '7.8s' },
+  { Icon: Send,          top: '29%', left: '77%', size: 24, opacity: 0.05, delay: '8.4s'  },
+  { Icon: Globe2,        top: '55%', left: '25%', size: 26, opacity: 0.045, delay: '3.7s' },
 ];
 
 const ROTATE_MS = 4200;
@@ -119,8 +148,8 @@ export function LoginShowcase() {
       {/* ── Brand ─────────────────────────────────────────────────────── */}
       <div className="relative z-10 p-12">
         <div className="flex items-center gap-3">
-          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-white/10 ring-1 ring-white/20 backdrop-blur-sm">
-            <span className="text-xl font-bold text-white">«</span>
+          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-white/95 shadow-lg shadow-black/20 ring-1 ring-white/30">
+            <BrandLogo className="h-6 w-6" />
           </div>
           <div>
             <p className="text-lg font-bold leading-tight text-white">KollegeApply</p>
