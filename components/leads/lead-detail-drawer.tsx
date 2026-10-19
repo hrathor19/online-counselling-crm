@@ -84,17 +84,8 @@ interface LeadDetail {
   course?: string | null;
   college?: string | null;
   campaign?: string | null;
-  leadType?: string | null;
   leadOrigin?: string | null;
-  leadZone?: string | null;
-  primaryApplicationConfirm?: string | null;
-  primaryAdmissionConfirm?: string | null;
-  leadConfirmation?: string | null;
-  leadStage?: string | null;
   stageHistory?: { id: string; stage: string; source?: string | null; createdAt: string }[];
-  leadVerification?: string | null;
-  dataCallingType?: string | null;
-  dealType?: string | null;
   status: string;
   createdAt: string;
   uploadedBy?: { name: string };
@@ -954,7 +945,6 @@ export function LeadDetailDrawer({ leadId, onClose, canSubmitFeedback = false }:
   const { data: session } = useSession();
   const agentName = session?.user?.name ?? 'Your Counsellor';
   // Counselling Agents shouldn't see lead-source info they have no use for.
-  const showLeadType = session?.user?.role !== 'COUNSELLING_AGENT';
 
   const { toast: drawerToast } = useToast();
 
@@ -1030,7 +1020,6 @@ export function LeadDetailDrawer({ leadId, onClose, canSubmitFeedback = false }:
               <h2 className="text-lg font-bold leading-tight">{lead.name}</h2>
               <p className="text-xs text-muted-foreground mt-0.5">
                 {displayLeadId(lead.id)}
-                {lead.leadZone && ` · ${lead.leadZone} Zone`}
               </p>
             </div>
           )}
@@ -1158,34 +1147,13 @@ export function LeadDetailDrawer({ leadId, onClose, canSubmitFeedback = false }:
                           than one — see PriorInterestTrail. */}
                       <PriorInterestTrail leadId={lead.id} />
                       <InfoRow label="State / City" value={[lead.state, lead.city].filter(Boolean).join(' / ')} />
-                      <InfoRow label="Zone" value={lead.leadZone} />
                       <InfoRow label="Lead Source" value={lead.campaign} />
-                      {showLeadType && <InfoRow label="Lead Type" value={lead.leadType} />}
                       <InfoRow
                         label="Date Added"
                         value={lead.createdAt ? new Date(lead.createdAt).toLocaleDateString('en-CA') : undefined}
                       />
                     </dl>
                   </div>
-
-                  {(lead.primaryApplicationConfirm || lead.primaryAdmissionConfirm ||
-                    lead.leadConfirmation || lead.leadStage ||
-                    lead.leadVerification || lead.dataCallingType || lead.dealType) && (
-                    <div>
-                      <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">
-                        Lead Tracking
-                      </p>
-                      <dl className="space-y-0">
-                        <InfoRow label="Primary App. Confirm"  value={lead.primaryApplicationConfirm} />
-                        <InfoRow label="Primary Adm. Confirm"  value={lead.primaryAdmissionConfirm} />
-                        <InfoRow label="Lead Confirmation"     value={lead.leadConfirmation} />
-                        <InfoRow label="Lead Stage"            value={lead.leadStage} />
-                        <InfoRow label="Lead Verification"     value={lead.leadVerification} />
-                        <InfoRow label="Data Calling Type"     value={lead.dataCallingType} />
-                        <InfoRow label="Deal Type"              value={lead.dealType} />
-                      </dl>
-                    </div>
-                  )}
 
                   {/* Stage history — the ingestion API re-sends a lead as its
                       stage advances, and each new stage is recorded here with
@@ -1194,8 +1162,7 @@ export function LeadDetailDrawer({ leadId, onClose, canSubmitFeedback = false }:
                       are two. A lead that predates this table has no recorded
                       past, so its first API stage change produces exactly one
                       entry — hiding that made a change that HAD been recorded
-                      look like it was missing. One entry still adds the date
-                      and source, which the Lead Stage row above does not. */}
+                      look like it was missing. */}
                   {(lead.stageHistory?.length ?? 0) > 0 && (
                     <div>
                       <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">
