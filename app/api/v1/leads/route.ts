@@ -6,6 +6,7 @@ import { callingTypeForIngest } from '@/lib/lead-code';
 import { planPriorityAssignments } from '@/lib/priority-assignment';
 import { logActivity } from '@/lib/permissions';
 import { verifyApiKey } from '@/lib/api-key';
+import { addInterest, findLeadByIdentity, hasInterest, identityKey, norm } from '@/lib/lead-interest';
 import { fetchLmsCityNames, fetchLmsStateNames, fetchLmsCourseGroupRecords, toCanonicalMap } from '@/lib/lms-api';
 import { buildDropdownValidationSets, isAllowedDropdownValue, type DropdownValidationSets } from '@/lib/dropdown-validation';
 
@@ -65,21 +66,38 @@ import { buildDropdownValidationSets, isAllowedDropdownValue, type DropdownValid
 //   They are tolerated rather than rejected so a caller written against the
 //   older contract still gets a created lead instead of a validation error.
 //
-//   A lead that already exists (email + resolved college) is normally a 409.
+// RETURNING STUDENTS
+//   A person is identified by email + phone (case-insensitive on the email).
+//   Send the same person again with a college or course they have not enquired
+//   about before and NO second lead is created: the new college/course is
+//   appended to that lead's interest history, the lead's own `college` and
+//   `course` columns move to the newest pair, and you get 200 with
+//   "merged": true. The CRM shows the latest college with a "+1" / "+2" badge.
+//
+//   Only an exact repeat — same person, same college AND same course, whether
+//   or not it is their current one — is a 409 duplicate. Going Kros -> Goa ->
+//   Kros is therefore a merge, then a duplicate.
+//
 //   The exception is `leadStage`: if it differs from the stored one, the stage
 //   is updated, stage history is written, the change is logged, and the agent
 //   holding the lead is notified. That is how an upstream system reports that
 //   a lead it sent earlier has moved on.
 //
-//   Duplicates (email + resolved college, case-insensitive) are checked both
-//   against leads already in the CRM AND against earlier items in the same
-//   array — sending the same lead twice in one call only creates it once.
+//   All of this applies within a single array too — sending one person's three
+//   colleges in one call creates one lead with three interests.
 //
 // RESPONSES — single-object request body (unchanged)
 //   201 Created      — lead accepted, created APPROVED and unassigned
 //     { "success": true, "message": "Lead Processed Successfully", "Lead_ID": "LID50" }
 //
-//   409 Conflict      — a lead with this email + college already exists
+//   200 OK            — this person already exists; the new college/course was
+//                       added to their interest history instead of creating a
+//                       second lead. No new lead was created.
+//     { "success": true, "message": "Added to the existing lead — now 2 college/course interests",
+//       "Lead_ID": "LID12", "merged": true, "interestCount": 2 }
+//
+//   409 Conflict      — this person has already enquired about this exact
+//                       college AND course
 //     { "success": false, "message": "Duplicate lead...", "Lead_ID": "LID12" }
 //     (Lead_ID here is the ALREADY-EXISTING lead's ID, for your reference)
 //
@@ -87,17 +105,20 @@ import { buildDropdownValidationSets, isAllowedDropdownValue, type DropdownValid
 //     { "success": false, "message": "Validation failed", "errors": { "<field>": "<reason>", ... } }
 //
 // RESPONSES — array request body
-//   201 Created (at least one lead was created) or 400 Bad Request (none were)
+//   201 Created (at least one item was accepted) or 400 Bad Request (none were)
 //     {
 //       "success": true,
-//       "message": "Processed 3 leads — 2 created, 1 duplicate, 0 failed",
-//       "summary": { "total": 3, "created": 2, "duplicate": 1, "failed": 0 },
+//       "message": "Processed 3 leads — 1 created, 1 merged, 0 stage updated, 1 duplicate, 0 failed",
+//       "summary": { "total": 3, "created": 1, "merged": 1, "stageUpdated": 0, "duplicate": 1, "failed": 0 },
 //       "results": [
 //         { "index": 0, "success": true,  "message": "Lead Processed Successfully", "Lead_ID": "LID101" },
-//         { "index": 1, "success": true,  "message": "Lead Processed Successfully", "Lead_ID": "LID102" },
+//         { "index": 1, "success": true,  "message": "Added to the existing lead — now 2 college/course interests", "Lead_ID": "LID101" },
 //         { "index": 2, "success": false, "message": "Duplicate lead...", "Lead_ID": "LID101" }
 //       ]
 //     }
+//   `created` counts only NEW leads. An item that joined an existing lead is
+//   counted in `merged`, so created + merged + stageUpdated is how many items
+//   were accepted.
 //   Each entry in "results" is shaped exactly like a single-object response,
 //   plus its "index" (0-based position) in the array you sent — a failed
 //   validation entry there has "errors" instead of "Lead_ID", same as above.
@@ -408,10 +429,18 @@ export async function POST(req: NextRequest) {
       // client still sending it is ignored rather than rejected.
       const collegeAttrs = maps.dropdownData.collegeAttributeMap.get(d.college.trim().toLowerCase());
 
-      const existing = await prisma.lead.findFirst({
-        where: { email, college: college ? { equals: college, mode: 'insensitive' } : null },
-        select: { id: true, leadStage: true, name: true, assignedToId: true },
-      });
+      /**
+       * The same student, found by email + phone rather than email + college:
+       * someone asking about a second college is one lead with two interests,
+       * not two leads. See lib/lead-interest.ts.
+       */
+      const identity = await findLeadByIdentity(prisma, email, d.phone);
+      const existing = identity
+        ? await prisma.lead.findUnique({
+            where: { id: identity.id },
+            select: { id: true, leadStage: true, name: true, assignedToId: true },
+          })
+        : null;
       if (existing) {
         // A repeat of the same lead at a NEW stage is progress, not a duplicate:
         // record the stage and move the lead forward instead of rejecting it.
@@ -449,8 +478,25 @@ export async function POST(req: NextRequest) {
             { status: 200 },
           );
         }
+        // A college or course they have not enquired about before is new
+        // information, so it joins this lead rather than being refused.
+        if (!(await hasInterest(prisma, existing.id, college, resolved.course ?? null))) {
+          await addInterest(prisma, existing.id, college, resolved.course ?? null, 'API', { promote: true });
+          const interestCount = await prisma.leadInterest.count({ where: { leadId: existing.id } });
+          return NextResponse.json(
+            {
+              success: true,
+              message: `Added to the existing lead — now ${interestCount} college/course interests`,
+              Lead_ID: existing.id,
+              merged: true,
+              interestCount,
+            },
+            { status: 200 },
+          );
+        }
+
         return NextResponse.json(
-          { success: false, message: 'Duplicate lead — a lead with this email and college already exists', Lead_ID: existing.id },
+          { success: false, message: 'Duplicate lead — this student has already enquired about that college and course', Lead_ID: existing.id },
           { status: 409 },
         );
       }
@@ -482,6 +528,8 @@ export async function POST(req: NextRequest) {
           // Seed the history with the stage it arrived on, so the timeline is
           // complete from the first record rather than starting at the second.
           ...(leadStage ? { stageHistory: { create: { stage: leadStage, source: 'API' } } } : {}),
+          // Complete from the start, so the "+1" badge counts correctly.
+          interests: { create: { college, course: resolved.course ?? null, source: 'API' } },
         },
         select: { id: true },
       });
@@ -504,7 +552,7 @@ export async function POST(req: NextRequest) {
     if (body.length === 0) return fail(400, 'Array must contain at least 1 lead');
     if (body.length > MAX_BULK) return fail(400, `A single request can contain at most ${MAX_BULK} leads — split into multiple calls`);
 
-    type Pending = { index: number; d: LeadPayload; college: string | null };
+    type Pending = { index: number; d: LeadPayload; college: string | null; resolvedCourse: string | null };
     const results: ({ index: number; success: boolean; message: string; Lead_ID?: string; errors?: Record<string, string> })[] =
       new Array(body.length);
     const pending: Pending[] = [];
@@ -522,18 +570,35 @@ export async function POST(req: NextRequest) {
         results[index] = { index, success: false, message: 'Validation failed', errors };
         continue;
       }
-      pending.push({ index, d, college: resolved.college ?? null });
+      pending.push({ index, d, college: resolved.college ?? null, resolvedCourse: resolved.course ?? null });
     }
 
     // Phase 2 — duplicate check, batched into ONE query against leads already
     // in the CRM, plus dedup against earlier items in this same array.
     if (pending.length > 0) {
+      // Identity is email + phone: a student asking about a second college is
+      // one lead with two interests, not two leads. See lib/lead-interest.ts.
       const existing = await prisma.lead.findMany({
-        where: { OR: pending.map((p) => ({ email: p.d.email.toLowerCase(), college: p.college ? { equals: p.college, mode: 'insensitive' as const } : null })) },
-        select: { id: true, email: true, college: true, leadStage: true, name: true, assignedToId: true },
+        where: { email: { in: pending.map((p) => norm(p.d.email)) } },
+        select: { id: true, email: true, phone: true, leadStage: true, name: true, assignedToId: true },
       });
       const existingByKey = new Map<string, { id: string; leadStage: string | null; name: string; assignedToId: string | null }>();
-      for (const e of existing) existingByKey.set(dedupeKey(e.email, e.college), { id: e.id, leadStage: e.leadStage, name: e.name, assignedToId: e.assignedToId });
+      for (const e of existing) existingByKey.set(identityKey(e.email, e.phone), { id: e.id, leadStage: e.leadStage, name: e.name, assignedToId: e.assignedToId });
+
+      // Every college/course pair already on file for those leads, in one query.
+      const priorInterests = existing.length
+        ? await prisma.leadInterest.findMany({
+            where: { leadId: { in: existing.map((e) => e.id) } },
+            select: { leadId: true, college: true, course: true },
+          })
+        : [];
+      const interestKeys = new Set(priorInterests.map((i) => `${i.leadId}|${norm(i.college)}|${norm(i.course)}`));
+
+      // Rows joining a lead that already existed, rather than creating one.
+      const interestMerges: { index: number; leadId: string; college: string | null; course: string | null }[] = [];
+      // Same, for a lead created earlier in THIS request — its id only exists
+      // after Phase 3, so these are resolved then.
+      const intraBatchMerges: { index: number; sourceIndex: number; college: string | null; course: string | null }[] = [];
 
       // Every stage here already passed validation against the configured list.
       const canonicalStage = (raw: string | null | undefined) => (raw ? raw.trim() : null);
@@ -542,7 +607,7 @@ export async function POST(req: NextRequest) {
       // left it on so far. The stage is tracked because a later item for the
       // same lead at a DIFFERENT stage is a stage advance, not a duplicate —
       // exactly as for a lead that already existed in the CRM.
-      const seenInBatch = new Map<string, { index: number; stage: string | null }>();
+      const seenInBatch = new Map<string, { index: number; stage: string | null; pairs: Set<string> }>();
       const toCreate: Pending[] = [];
       const duplicateOfIndex = new Map<number, number>(); // index -> index of the batch item creating it
 
@@ -553,9 +618,17 @@ export async function POST(req: NextRequest) {
       const intraBatchStageUpdates: { index: number; sourceIndex: number; stage: string }[] = [];
 
       for (const p of pending) {
-        const key = dedupeKey(p.d.email, p.college);
+        const key = identityKey(p.d.email, p.d.phone);
+        const cc = `${norm(p.college)}|${norm(p.resolvedCourse)}`;
         const hit = existingByKey.get(key);
         if (hit) {
+          // A college or course they have not enquired about before is new
+          // information, and takes precedence over the stage comparison.
+          if (!interestKeys.has(`${hit.id}|${cc}`)) {
+            interestKeys.add(`${hit.id}|${cc}`);
+            interestMerges.push({ index: p.index, leadId: hit.id, college: p.college, course: p.resolvedCourse });
+            continue;
+          }
           const stage = canonicalStage(p.d.leadStage);
           if (stage && hit.leadStage !== stage) {
             stageUpdates.push({ index: p.index, leadId: hit.id, from: hit.leadStage, stage, name: hit.name, assignedToId: hit.assignedToId });
@@ -564,25 +637,30 @@ export async function POST(req: NextRequest) {
             // instead of re-applying the same update.
             existingByKey.set(key, { id: hit.id, leadStage: stage, name: hit.name, assignedToId: hit.assignedToId });
           } else {
-            results[p.index] = { index: p.index, success: false, message: 'Duplicate lead — a lead with this email and college already exists', Lead_ID: hit.id };
+            results[p.index] = { index: p.index, success: false, message: 'Duplicate lead — this student has already enquired about that college and course', Lead_ID: hit.id };
           }
           continue;
         }
         const seen = seenInBatch.get(key);
         if (seen !== undefined) {
+          if (!seen.pairs.has(cc)) {
+            seen.pairs.add(cc);
+            intraBatchMerges.push({ index: p.index, sourceIndex: seen.index, college: p.college, course: p.resolvedCourse });
+            continue;
+          }
           const stage = canonicalStage(p.d.leadStage);
           if (stage && seen.stage !== stage) {
             // The lead does not exist yet — it is created by item `seen.index`
             // in Phase 3 below, so its id isn't known until then. Queue the
             // advance and resolve the id afterwards.
             intraBatchStageUpdates.push({ index: p.index, sourceIndex: seen.index, stage });
-            seenInBatch.set(key, { index: seen.index, stage });
+            seenInBatch.set(key, { index: seen.index, stage, pairs: seen.pairs });
           } else {
             duplicateOfIndex.set(p.index, seen.index);
           }
           continue;
         }
-        seenInBatch.set(key, { index: p.index, stage: canonicalStage(p.d.leadStage) });
+        seenInBatch.set(key, { index: p.index, stage: canonicalStage(p.d.leadStage), pairs: new Set([cc]) });
         toCreate.push(p);
       }
 
@@ -662,6 +740,8 @@ export async function POST(req: NextRequest) {
               ...(canonicalStage(d.leadStage)
                 ? { stageHistory: { create: { stage: canonicalStage(d.leadStage)!, source: 'API' } } }
                 : {}),
+              // Complete from the start, so the "+1" badge counts correctly.
+              interests: { create: { college, course: resolved.course ?? null, source: 'API' } },
             },
             select: { id: true },
           });
@@ -675,13 +755,46 @@ export async function POST(req: NextRequest) {
 
       // Stage advances for leads created moments ago in this same request.
       // Sequential per lead so the recorded order matches the request order.
+      /**
+       * Interest merges, applied after Phase 3 so intra-batch ones can resolve
+       * the id of the lead their earlier sibling created. The lead's own
+       * college/course columns are moved to the latest interest, keeping every
+       * existing filter, export and report working unchanged.
+       */
+      const allMerges = [
+        ...interestMerges.map((m) => ({ index: m.index, leadId: m.leadId as string | undefined, college: m.college, course: m.course })),
+        ...intraBatchMerges.map((m) => ({ index: m.index, leadId: createdIdByIndex.get(m.sourceIndex), college: m.college, course: m.course })),
+      ];
+      for (const m of allMerges) {
+        if (!m.leadId) {
+          results[m.index] = { index: m.index, success: false, message: 'The lead this would have joined could not be created' };
+          continue;
+        }
+        try {
+          await prisma.$transaction([
+            prisma.leadInterest.create({ data: { leadId: m.leadId, college: m.college, course: m.course, source: 'API' } }),
+            prisma.lead.update({ where: { id: m.leadId }, data: { college: m.college, course: m.course, updatedAt: new Date() } }),
+          ]);
+          const interestCount = await prisma.leadInterest.count({ where: { leadId: m.leadId } });
+          results[m.index] = {
+            index: m.index,
+            success: true,
+            message: `Added to the existing lead — now ${interestCount} college/course interests`,
+            Lead_ID: m.leadId,
+          };
+        } catch (err) {
+          console.error('[v1/leads POST bulk] interest merge failed', m.index, err);
+          results[m.index] = { index: m.index, success: false, message: 'Internal server error merging this lead' };
+        }
+      }
+
       if (intraBatchStageUpdates.length > 0) {
         const byLead = new Map<string, typeof intraBatchStageUpdates>();
         for (const u of intraBatchStageUpdates) {
           const leadId = createdIdByIndex.get(u.sourceIndex);
           if (!leadId) {
             // The creating item failed, so there is nothing to advance.
-            results[u.index] = { index: u.index, success: false, message: 'Duplicate lead — same email and college as another lead earlier in this request, which failed to create' };
+            results[u.index] = { index: u.index, success: false, message: 'Duplicate lead — same college and course as another lead earlier in this request, which failed to create' };
             continue;
           }
           const list = byLead.get(leadId);
@@ -708,42 +821,49 @@ export async function POST(req: NextRequest) {
       duplicateOfIndex.forEach((sourceIndex, dupIndex) => {
         const sourceId = createdIdByIndex.get(sourceIndex);
         results[dupIndex] = sourceId
-          ? { index: dupIndex, success: false, message: 'Duplicate lead — same email and college as another lead earlier in this request', Lead_ID: sourceId }
-          : { index: dupIndex, success: false, message: 'Duplicate lead — same email and college as another lead earlier in this request, which failed to create' };
+          ? { index: dupIndex, success: false, message: 'Duplicate lead — same college and course as another lead earlier in this request', Lead_ID: sourceId }
+          : { index: dupIndex, success: false, message: 'Duplicate lead — same college and course as another lead earlier in this request, which failed to create' };
       });
     }
 
-    // A stage advance succeeds but creates nothing, so it is counted separately
-    // rather than inflating `created` — the caller needs to tell "6 new leads"
-    // apart from "6 existing leads moved on a stage".
+    // Three different kinds of success, counted apart rather than lumped into
+    // `created`: the caller needs to tell "6 new leads" from "6 existing leads
+    // moved on a stage" from "6 existing leads that gained an interest". Only
+    // `created` means a row was added to the leads table.
     const isStageUpdate = (m: string) => m.startsWith('Lead stage updated');
+    const isMerge = (m: string) => m.startsWith('Added to the existing lead');
     const summary = {
       total: results.length,
-      created: results.filter((r) => r.success && !isStageUpdate(r.message)).length,
+      created: results.filter((r) => r.success && !isStageUpdate(r.message) && !isMerge(r.message)).length,
+      merged: results.filter((r) => r.success && isMerge(r.message)).length,
       stageUpdated: results.filter((r) => r.success && isStageUpdate(r.message)).length,
       duplicate: results.filter((r) => !r.success && r.message.startsWith('Duplicate')).length,
       failed: results.filter((r) => !r.success && !r.message.startsWith('Duplicate')).length,
     };
 
-    if (summary.created > 0) {
+    // A request whose items all merged onto existing leads did real work, so
+    // it is a success even though `created` is zero.
+    const accepted = summary.created + summary.merged + summary.stageUpdated;
+
+    if (summary.created > 0 || summary.merged > 0) {
       await logActivity({
         userId: apiKey.createdById,
         action: 'LEAD_CREATED_VIA_API',
         targetId: 'bulk',
         targetType: 'Lead',
-        description: `${summary.created} lead(s) created via bulk API key "${apiKey.name}" (${summary.total} sent, ${summary.duplicate} duplicate, ${summary.failed} failed) — auto-approved, sent to Unassigned Leads`,
+        description: `${summary.created} lead(s) created, ${summary.merged} merged into existing leads via bulk API key "${apiKey.name}" (${summary.total} sent, ${summary.duplicate} duplicate, ${summary.failed} failed) — auto-approved, sent to Unassigned Leads`,
         metadata: { apiKeyId: apiKey.id, apiKeyName: apiKey.name, ...summary },
       });
     }
 
     return NextResponse.json(
       {
-        success: summary.created > 0,
-        message: `Processed ${summary.total} lead${summary.total === 1 ? '' : 's'} — ${summary.created} created, ${summary.stageUpdated} stage updated, ${summary.duplicate} duplicate, ${summary.failed} failed`,
+        success: accepted > 0,
+        message: `Processed ${summary.total} lead${summary.total === 1 ? '' : 's'} — ${summary.created} created, ${summary.merged} merged, ${summary.stageUpdated} stage updated, ${summary.duplicate} duplicate, ${summary.failed} failed`,
         summary,
         results,
       },
-      { status: summary.created > 0 ? 201 : 400 },
+      { status: accepted > 0 ? 201 : 400 },
     );
   } catch (error) {
     console.error('[v1/leads POST]', error);

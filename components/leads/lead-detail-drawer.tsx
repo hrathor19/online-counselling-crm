@@ -780,6 +780,75 @@ interface ScheduledCallItem {
   status: 'PENDING' | 'DONE' | 'CANCELLED';
 }
 
+interface InterestRow {
+  id: string;
+  college: string | null;
+  course: string | null;
+  source: string | null;
+  createdAt: string;
+}
+
+/**
+ * What this student asked about before.
+ *
+ * `Lead.college` and `Lead.course` carry only the latest enquiry, so without
+ * this the drawer would silently drop the fact that they first came in for a
+ * different college. Renders nothing at all for the ordinary single-interest
+ * lead rather than an empty heading.
+ */
+function PriorInterestTrail({ leadId }: { leadId: string }) {
+  const { data: rows = [] } = useQuery<InterestRow[]>({
+    queryKey: ['lead-interests', leadId],
+    queryFn: () =>
+      fetch(`/api/leads/${leadId}/interests`).then((r) => r.json()).then((d) => (Array.isArray(d) ? d : [])),
+    enabled: !!leadId,
+  });
+
+  if (rows.length < 2) return null;
+
+  // Newest first: the current enquiry is the one a counsellor is calling about.
+  const ordered = [...rows].reverse();
+
+  return (
+    <div className="border-t border-border/40 py-2.5">
+      <p className="mb-1.5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+        Also enquired about
+        <span className="ml-1.5 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium normal-case tracking-normal">
+          {ordered.length}
+        </span>
+      </p>
+      <ol className="space-y-1">
+        {ordered.map((r, i) => (
+          <li
+            key={r.id}
+            className={cn(
+              'flex items-baseline justify-between gap-3 rounded-md px-2 py-1.5 text-xs',
+              i === 0 ? 'bg-primary/5' : 'bg-muted/30',
+            )}
+          >
+            <span className="min-w-0">
+              <span className={cn('block truncate font-medium', i === 0 ? 'text-foreground' : 'text-muted-foreground')}>
+                {r.college || '—'}
+              </span>
+              {r.course && <span className="block truncate text-[11px] text-muted-foreground">{r.course}</span>}
+            </span>
+            <span className="shrink-0 text-right">
+              {i === 0 && (
+                <span className="block text-[10px] font-semibold uppercase tracking-wide text-primary">Current</span>
+              )}
+              <span className="block text-[10px] text-muted-foreground">
+                {new Date(r.createdAt).toLocaleDateString('en-GB', {
+                  timeZone: IST_TIMEZONE, day: '2-digit', month: 'short', year: '2-digit',
+                })}
+              </span>
+            </span>
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
+}
+
 function CallsTab({ leadId }: { leadId: string }) {
   const qc = useQueryClient();
   const { toast } = useToast();
@@ -1085,6 +1154,9 @@ export function LeadDetailDrawer({ leadId, onClose, canSubmitFeedback = false }:
                       <InfoRow label="Email" value={lead.email} />
                       <InfoRow label="College" value={lead.college} />
                       <InfoRow label="Course" value={lead.course} />
+                      {/* Only rendered once a student has enquired about more
+                          than one — see PriorInterestTrail. */}
+                      <PriorInterestTrail leadId={lead.id} />
                       <InfoRow label="State / City" value={[lead.state, lead.city].filter(Boolean).join(' / ')} />
                       <InfoRow label="Zone" value={lead.leadZone} />
                       <InfoRow label="Lead Source" value={lead.campaign} />

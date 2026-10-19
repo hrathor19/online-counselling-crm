@@ -235,7 +235,16 @@ export default function OperationsPage() {
         toast({ variant: 'destructive', title: 'Failed to add lead', description: typeof data.error === 'string' ? data.error : 'Validation error' });
         return;
       }
-      toast({ title: 'Lead added', description: `${data.name} has been added successfully.` });
+      // A merge created nothing — saying "Lead added" would have the operator
+      // looking for a new row that does not exist.
+      if (data.merged) {
+        toast({
+          title: 'Added to an existing lead',
+          description: `${data.name} had already enquired, so ${data.college} was added to their interests (${data.interestCount} in total).`,
+        });
+      } else {
+        toast({ title: 'Lead added', description: `${data.name} has been added successfully.` });
+      }
       queryClient.invalidateQueries({ queryKey: ['leads'] });
       setSingleLeadOpen(false);
       resetSingle();

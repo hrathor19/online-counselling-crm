@@ -8,6 +8,7 @@ import { leadCodeError } from '@/lib/csv-parser';
 import { planPriorityAssignments } from '@/lib/priority-assignment';
 import { hasPermission } from '@/lib/permissions';
 import { buildDropdownValidationSets } from '@/lib/dropdown-validation';
+import { identityKey, norm } from '@/lib/lead-interest';
 import { Feature } from '@prisma/client';
 
 const leadSchema = z.object({
@@ -128,53 +129,89 @@ export async function POST(req: NextRequest) {
     const totalErrorRecords = clientErrorCount + invalidLeads.length;
 
     const result = await prisma.$transaction(async (tx) => {
-      // Fetch existing leads that share any of the incoming emails (email + college for duplicate key)
-      const existing = await tx.lead.findMany({
-        where: { email: { in: validLeads.map((l) => l.email.trim().toLowerCase()) } },
-        select: { email: true, college: true },
-      });
-
-      // Duplicate key = email + college (both lowercased; null treated as empty string)
-      const existingKeys = new Set(
-        existing.map((l) => `${l.email.toLowerCase()}|${(l.college ?? '').trim().toLowerCase()}`)
-      );
-
-      const dupKey = (l: { email: string; college?: string | null }) =>
-        `${l.email.trim().toLowerCase()}|${(l.college ?? '').trim().toLowerCase()}`;
-
-      // Resolve college names before dedup (use resolved name for dedup key too)
-      const resolvedValid = validLeads.map((l) => ({
+      // College names are resolved first: the stored value is the curated
+      // spelling, and the interest history has to match on that, not on
+      // whatever capitalisation the file used.
+      const resolvedValidPre = validLeads.map((l) => ({
         ...l,
         college: l._resolvedCollege ?? l.college,
       }));
 
-      const alreadyInDb = resolvedValid.filter((l) => existingKeys.has(dupKey(l)));
+      /**
+       * Who is already in the CRM?
+       *
+       * Identity is email + phone, not email + college: a student who asked
+       * about one college last month and a different one today is the same
+       * person. Their row is reused and the new college recorded against it,
+       * rather than a second lead appearing for them. See lib/lead-interest.ts.
+       */
+      const existing = await tx.lead.findMany({
+        where: { email: { in: resolvedValidPre.map((l) => norm(l.email)) } },
+        select: { id: true, email: true, phone: true },
+      });
+      const existingByIdentity = new Map(existing.map((l) => [identityKey(l.email, l.phone), l.id]));
 
-      // De-duplicate the file against itself as well as against the database.
-      //
-      // Checking only the database was the whole bug: every copy of a row inside
-      // one file is genuinely absent from the Lead table at the moment of the
-      // check, so all of them passed and createMany inserted the lot. A single
-      // upload on 22 Aug 2026 put 370 rows in for 88 real people — 282 surplus —
-      // and because leads are round-robin assigned, five different agents ended
-      // up separately phoning the same person.
-      //
-      // Same key as the database check (email + college), so a row is treated
-      // identically whether its twin is in the file or already stored. The first
-      // occurrence wins, which keeps the result predictable: it is the row the
-      // person who built the file would expect to survive.
-      const seenInFile = new Set<string>();
+      // Every college/course pair already on file for those leads, fetched in
+      // one query rather than per row.
+      const existingIds = existing.map((l) => l.id);
+      const priorInterests = existingIds.length
+        ? await tx.leadInterest.findMany({
+            where: { leadId: { in: existingIds } },
+            select: { leadId: true, college: true, course: true },
+          })
+        : [];
+      const interestKeys = new Set(
+        priorInterests.map((i) => `${i.leadId}|${norm(i.college)}|${norm(i.course)}`),
+      );
+
+      const resolvedValid = resolvedValidPre;
+
+      /**
+       * Four outcomes per row, decided in one pass:
+       *
+       *   toInsert     a person not in the CRM, and the first time they appear
+       *                in this file
+       *   toMerge      a person already in the CRM, bringing a college/course
+       *                they have not enquired about before
+       *   extraInFile  the same person twice in THIS file with different
+       *                colleges — the first row creates the lead, this one
+       *                becomes a second interest on it once the id exists
+       *   duplicates   nothing new said, counted exactly as before
+       */
       const toInsert: typeof resolvedValid = [];
+      const toMerge: { leadId: string; college: string | null; course: string | null }[] = [];
+      const extraInFile: { identity: string; college: string | null; course: string | null }[] = [];
+      const alreadyInDb: typeof resolvedValid = [];
       const repeatedInFile: typeof resolvedValid = [];
+
+      // Identity -> the college/course pairs already claimed by earlier rows of
+      // this same file, so the file is de-duplicated against itself too. Not
+      // doing this was a real incident: one upload created 370 rows for 88
+      // people, and five agents separately phoned the same student.
+      const seenInFile = new Map<string, Set<string>>();
+
       for (const lead of resolvedValid) {
-        const key = dupKey(lead);
-        if (existingKeys.has(key)) continue;      // counted in alreadyInDb
-        if (seenInFile.has(key)) {
-          repeatedInFile.push(lead);
+        const identity = identityKey(lead.email, lead.phone);
+        const cc = `${norm(lead.college)}|${norm(lead.course)}`;
+
+        const existingId = existingByIdentity.get(identity);
+        if (existingId) {
+          if (interestKeys.has(`${existingId}|${cc}`)) { alreadyInDb.push(lead); continue; }
+          // Guard against the same new college twice in one file.
+          interestKeys.add(`${existingId}|${cc}`);
+          toMerge.push({ leadId: existingId, college: lead.college ?? null, course: lead.course ?? null });
           continue;
         }
-        seenInFile.add(key);
-        toInsert.push(lead);
+
+        const seen = seenInFile.get(identity);
+        if (!seen) {
+          seenInFile.set(identity, new Set([cc]));
+          toInsert.push(lead);
+          continue;
+        }
+        if (seen.has(cc)) { repeatedInFile.push(lead); continue; }
+        seen.add(cc);
+        extraInFile.push({ identity, college: lead.college ?? null, course: lead.course ?? null });
       }
 
       const duplicateList = [...alreadyInDb, ...repeatedInFile];
@@ -186,6 +223,7 @@ export async function POST(req: NextRequest) {
           uploadedById:     session.user.id,
           totalRecords:     leads.length + clientErrorCount,
           insertedRecords:  toInsert.length,
+          // A merged row is not a new lead, so it is not counted as inserted.
           duplicateRecords: duplicateList.length,
           errorRecords:     totalErrorRecords,
           status: 'COMPLETED',
@@ -243,6 +281,73 @@ export async function POST(req: NextRequest) {
         });
       }
 
+      /**
+       * Interests, written once the inserted leads have ids.
+       *
+       * Three sources land here: the first interest for every newly created
+       * lead, the extra colleges for people who appear twice in this file,
+       * and the new colleges for people already in the CRM. Recording the
+       * first one matters — without it a lead's second enquiry would look
+       * like its first and the "+1" badge would under-count by one forever.
+       */
+      const interestRows: { leadId: string; college: string | null; course: string | null; source: string; createdAt: Date }[] = [];
+
+      /**
+       * Explicit timestamps, a millisecond apart in file order.
+       *
+       * Postgres evaluates now() once per transaction, so every row of a
+       * createMany inside one would share an identical createdAt — leaving the
+       * order of a lead's interests undefined, and with it which one the UI
+       * marks as "Current". Stamping them here makes the sequence the file's.
+       */
+      const stampBase = Date.now();
+      const stamp = () => new Date(stampBase + interestRows.length);
+
+      if (toInsert.length > 0) {
+        const created = await tx.lead.findMany({
+          where: { email: { in: toInsert.map((l) => norm(l.email)) } },
+          select: { id: true, email: true, phone: true },
+        });
+        const idByIdentity = new Map(created.map((l) => [identityKey(l.email, l.phone), l.id]));
+
+        for (const l of toInsert) {
+          const id = idByIdentity.get(identityKey(l.email, l.phone));
+          if (id) interestRows.push({ leadId: id, college: l.college ?? null, course: l.course ?? null, source: 'CSV', createdAt: stamp() });
+        }
+
+        // Someone listed more than once in this file: the extra rows become
+        // further interests, and the LAST of them takes the lead's own
+        // columns. Without this the lead keeps the college from its first row
+        // while its newest interest says something else, and the table shows
+        // the wrong college next to the "+1".
+        const promote = new Map<string, { college: string | null; course: string | null }>();
+        for (const e of extraInFile) {
+          const id = idByIdentity.get(e.identity);
+          if (!id) continue;
+          interestRows.push({ leadId: id, college: e.college, course: e.course, source: 'CSV', createdAt: stamp() });
+          promote.set(id, { college: e.college, course: e.course });
+        }
+        for (const [leadId, latest] of Array.from(promote.entries())) {
+          await tx.lead.update({
+            where: { id: leadId },
+            data: { college: latest.college, course: latest.course, updatedAt: new Date() },
+          });
+        }
+      }
+
+      for (const m of toMerge) {
+        interestRows.push({ leadId: m.leadId, college: m.college, course: m.course, source: 'CSV', createdAt: stamp() });
+        // The lead's own columns hold the LATEST interest, so every existing
+        // filter, export and report keeps working without knowing this table
+        // exists.
+        await tx.lead.update({
+          where: { id: m.leadId },
+          data: { college: m.college, course: m.course, updatedAt: new Date() },
+        });
+      }
+
+      if (interestRows.length > 0) await tx.leadInterest.createMany({ data: interestRows });
+
       return {
         batchId:        batch.id,
         fileName:       batch.fileName,
@@ -253,6 +358,8 @@ export async function POST(req: NextRequest) {
         // different problems with two different fixes.
         alreadyInCrm:   alreadyInDb.length,
         repeatedInFile: repeatedInFile.length,
+        // Rows that joined an existing student rather than creating a lead.
+        merged:         toMerge.length + extraInFile.length,
         total:          leads.length + clientErrorCount,
         invalidLeads,
       };

@@ -4,6 +4,7 @@ import { getServerSession } from 'next-auth';
 import { z } from 'zod';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
+import { addInterest, mergeOrFlagDuplicate } from '@/lib/lead-interest';
 import { isMaskedRole } from '@/lib/permissions';
 import { maskContact } from '@/lib/data-masking';
 import { hasPermission } from '@/lib/permissions';
@@ -42,19 +43,30 @@ export async function POST(req: NextRequest) {
     const email   = d.email.trim().toLowerCase();
     const college = d.college?.trim() || null;
 
-    // Duplicate = same email AND same college (null == null)
-    const existing = await prisma.lead.findFirst({
-      where: {
-        email,
-        college: college ? { equals: college, mode: 'insensitive' } : null,
-      },
-      select: { id: true },
-    });
-    if (existing) {
+    /**
+     * Same person, different college? Keep one lead and record the new
+     * interest rather than creating a second record for the same student.
+     * Identity is email + phone — see lib/lead-interest.ts.
+     */
+    const outcome = await mergeOrFlagDuplicate(
+      prisma,
+      { email, phone: d.phone.trim(), college, course: d.course?.trim() || null },
+      'MANUAL',
+    );
+    if (outcome.kind === 'duplicate') {
       return NextResponse.json(
-        { error: 'A lead with this email and college already exists' },
+        { error: 'This lead has already enquired about that college and course' },
         { status: 409 },
       );
+    }
+    if (outcome.kind === 'merged') {
+      const merged = await prisma.lead.findUnique({ where: { id: outcome.leadId } });
+      return NextResponse.json({
+        ...merged,
+        merged: true,
+        interestCount: outcome.interestCount,
+        message: `Added to the existing lead — now ${outcome.interestCount} college/course interests`,
+      });
     }
 
     // Zone and Deal Type come from the college's configuration in Manage
@@ -89,6 +101,12 @@ export async function POST(req: NextRequest) {
         uploadedById: session.user.id,
       },
     });
+
+    // The first interest is recorded at creation too, so the history is
+    // complete from the start — otherwise every lead's second enquiry would
+    // look like its first and the "+1" badge would under-count by one.
+    await addInterest(prisma, lead.id, college, d.course?.trim() || null, 'MANUAL');
+
     return NextResponse.json(lead, { status: 201 });
   } catch (err: unknown) {
     console.error('[leads POST]', err);
@@ -159,7 +177,13 @@ export async function GET(req: NextRequest) {
           prevAssignee2: { select: { id: true, name: true } },
           batch:         { select: { id: true, fileName: true, createdAt: true } },
           feedbacks:     { take: 1, orderBy: { followUpNumber: 'desc' }, select: { followUpNumber: true, feedbackOption: { select: { label: true } } } },
-          _count:        { select: { feedbacks: true, stageHistory: true } },
+          _count:        { select: { feedbacks: true, stageHistory: true, interests: true } },
+          // College and course only: the table badges count how many DISTINCT
+          // colleges and courses a lead has enquired about, which a single
+          // _count cannot answer — a student who asked about the same course
+          // at two colleges has two interests but only one course, and a "+1"
+          // on the Course column would be promising something that isn't there.
+          interests:     { select: { college: true, course: true } },
           profile:       true,
         },
       }),

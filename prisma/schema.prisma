@@ -471,6 +471,7 @@ model Lead {
 
   feedbacks      LeadFeedback[]
   stageHistory   LeadStageEntry[]
+  interests      LeadInterest[]
   profile        LeadProfile?
   scheduledCalls ScheduledCall[]
   receipts       LeadReceipt[]
@@ -685,6 +686,33 @@ model LeadStageEntry {
 
   @@index([leadId, createdAt])
   @@index([stage])
+}
+
+/// One college/course a lead has enquired about.
+///
+/// A student who asks about B.Tech at one college and later about MBA at
+/// another is one person, not two leads. Identity is email + phone; when a
+/// lead with that identity arrives carrying a college or course it has not
+/// shown interest in before, the lead is reused and a row is added here
+/// rather than a second lead being created.
+///
+/// `Lead.college` and `Lead.course` always hold the LATEST interest, so every
+/// existing filter, export and report keeps working untouched. This table is
+/// the history behind them, and its row count is what drives the "+1" badge
+/// in All Leads.
+model LeadInterest {
+  id     String @id @default(cuid())
+  leadId String
+  lead   Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  college String?
+  course  String?
+
+  /// Where it came from — 'API', 'CSV' or 'MANUAL', matching LeadStageEntry.
+  source    String?
+  createdAt DateTime @default(now())
+
+  @@index([leadId, createdAt])
 }
 
 model LeadFeedback {

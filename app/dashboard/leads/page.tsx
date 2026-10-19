@@ -38,7 +38,8 @@ interface Lead {
   status: string; createdAt: string; updatedAt: string;
   assignedTo?: { id: string; name: string } | null;
   feedbacks: { followUpNumber: number; feedbackOption?: { label: string } | null }[];
-  _count: { feedbacks: number; stageHistory?: number };
+  _count: { feedbacks: number; stageHistory?: number; interests?: number };
+  interests?: { college: string | null; course: string | null }[];
   classYear?: string | null;
   category?: string | null;
   parentName?: string | null;
@@ -112,6 +113,50 @@ function displayLeadId(id: string) {
 // ─── Skeleton rows ────────────────────────────────────────────────────────────
 
 const SKELETON_WIDTHS = [4, 8, 20, 28, 40, 24, 16, 16, 20, 32, 24, 20, 20, 20, 24, 24];
+
+/**
+ * "+2" after a college or course, when the lead has enquired about more than
+ * one of them.
+ *
+ * Counted per column and on DISTINCT values, not on the number of interest
+ * rows: a student who asked about the same course at two colleges has two
+ * interests, but only ever one course, and a "+1" on the Course column would
+ * send a counsellor looking for a second course that does not exist.
+ *
+ * Renders nothing for the ordinary single-interest case rather than a "+0",
+ * so the column stays quiet for the leads where there is nothing to say.
+ */
+function distinctCount(
+  interests: { college: string | null; course: string | null }[] | undefined,
+  field: 'college' | 'course',
+): number {
+  if (!interests?.length) return 0;
+  const seen = new Set<string>();
+  for (const i of interests) {
+    const v = (i[field] ?? '').trim().toLowerCase();
+    if (v) seen.add(v);
+  }
+  return seen.size;
+}
+
+function PriorInterests({
+  interests, field,
+}: {
+  interests?: { college: string | null; course: string | null }[];
+  field: 'college' | 'course';
+}) {
+  const count = distinctCount(interests, field);
+  if (count < 2) return null;
+  const noun = field === 'college' ? 'colleges' : 'courses';
+  return (
+    <span
+      className="ml-1.5 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground"
+      title={`Enquired about ${count} ${noun} — open the lead to see them all`}
+    >
+      +{count - 1}
+    </span>
+  );
+}
 
 function SkeletonRows() {
   // One placeholder per real column, or the loading skeleton is a different
@@ -884,8 +929,17 @@ export default function AllLeadsPage() {
                       <td className="px-3 py-2.5 whitespace-nowrap text-[#e90000] dark:text-white font-medium text-sm">{lead.phone}</td>
                       <td className="px-3 py-2.5 whitespace-nowrap text-xs text-muted-foreground">{lead.city || '—'}</td>
                       <td className="px-3 py-2.5 whitespace-nowrap text-xs text-muted-foreground">{lead.state || '—'}</td>
-                      <td className="px-3 py-2.5 whitespace-nowrap text-xs text-muted-foreground">{lead.course || '—'}</td>
-                      <td className="px-3 py-2.5 whitespace-nowrap text-xs text-muted-foreground">{lead.college || '—'}</td>
+                      {/* Latest interest, with a count of the earlier ones.
+                          A student who enquired about two colleges is one
+                          lead; the full list is in the drawer. */}
+                      <td className="px-3 py-2.5 whitespace-nowrap text-xs text-muted-foreground">
+                        {lead.course || '—'}
+                        <PriorInterests interests={lead.interests} field="course" />
+                      </td>
+                      <td className="px-3 py-2.5 whitespace-nowrap text-xs text-muted-foreground">
+                        {lead.college || '—'}
+                        <PriorInterests interests={lead.interests} field="college" />
+                      </td>
                       {/* Agent */}
                       <td className="px-3 py-2.5 whitespace-nowrap text-xs">
                         {lead.assignedTo
