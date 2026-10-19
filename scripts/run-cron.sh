@@ -4,6 +4,7 @@
 #
 #   ./scripts/run-cron.sh email-reports
 #   ./scripts/run-cron.sh reassign-leads
+#   ./scripts/run-cron.sh retention
 #
 # The shared secret is read from .env.local at call time rather than written
 # into the crontab, so rotating CRON_SECRET does not silently leave cron
@@ -21,9 +22,9 @@ set -euo pipefail
 
 JOB="${1:-}"
 case "$JOB" in
-  email-reports|reassign-leads) ;;
+  email-reports|reassign-leads|retention) ;;
   *)
-    echo "usage: $(basename "$0") {email-reports|reassign-leads}" >&2
+    echo "usage: $(basename "$0") {email-reports|reassign-leads|retention}" >&2
     exit 2
     ;;
 esac
