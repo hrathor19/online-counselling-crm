@@ -2,7 +2,10 @@
 
 import { useEffect, useState } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
-import { GraduationCap, Headphones, FileCheck, Trophy } from 'lucide-react';
+import {
+  Award, BarChart3, BookOpen, Building2, CalendarCheck, FileCheck, FileText,
+  GraduationCap, Headphones, MessageSquare, PhoneCall, Target, TrendingUp, Trophy, Users,
+} from 'lucide-react';
 
 /**
  * The branded half of the login screen.
@@ -33,21 +36,29 @@ const PIPELINE = [
 ];
 
 /**
- * Background word cloud. Positions are hand-placed rather than random so the
- * layout is identical on every render — a random one would shift on each
- * hydration and flicker.
+ * The ambient backdrop: the tools of the job, scattered and barely there.
+ *
+ * Replaced a cloud of large ghosted words, which read as unstyled placeholder
+ * text at any opacity. Outline icons carry the same meaning — calls, courses,
+ * colleges, applications, targets, returns — without competing with the slogan
+ * for the reader's eye, which is the whole job of a backdrop.
+ *
+ * Positions and sizes are hand-placed, not random: a random layout differs
+ * between the server and client render and flickers on hydration.
  */
-const KEYWORDS = [
-  { text: 'Admissions', top: '8%', left: '6%', size: 'text-3xl', delay: '0s' },
-  { text: 'Conversions', top: '18%', left: '58%', size: 'text-2xl', delay: '1.2s' },
-  { text: 'Follow-ups', top: '31%', left: '12%', size: 'text-xl', delay: '2.4s' },
-  { text: 'Online MBA', top: '44%', left: '63%', size: 'text-2xl', delay: '0.6s' },
-  { text: 'Guidance', top: '57%', left: '8%', size: 'text-xl', delay: '3s' },
-  { text: 'Applications', top: '68%', left: '52%', size: 'text-3xl', delay: '1.8s' },
-  { text: 'Enrolment', top: '80%', left: '14%', size: 'text-2xl', delay: '2.1s' },
-  { text: 'Outreach', top: '90%', left: '58%', size: 'text-lg', delay: '0.9s' },
-  { text: 'Nurture', top: '25%', left: '38%', size: 'text-lg', delay: '3.6s' },
-  { text: 'Pipeline', top: '73%', left: '31%', size: 'text-lg', delay: '1.5s' },
+const ICONS = [
+  { Icon: GraduationCap, top: '7%',  left: '8%',  size: 46, opacity: 0.09, delay: '0s'    },
+  { Icon: PhoneCall,     top: '15%', left: '62%', size: 32, opacity: 0.07, delay: '2.1s'  },
+  { Icon: BookOpen,      top: '26%', left: '28%', size: 38, opacity: 0.06, delay: '4.3s'  },
+  { Icon: TrendingUp,    top: '21%', left: '82%', size: 42, opacity: 0.08, delay: '1.2s'  },
+  { Icon: Building2,     top: '38%', left: '12%', size: 36, opacity: 0.07, delay: '5.5s'  },
+  { Icon: FileText,      top: '45%', left: '70%', size: 30, opacity: 0.06, delay: '3.4s'  },
+  { Icon: Users,         top: '55%', left: '34%', size: 34, opacity: 0.05, delay: '6.2s'  },
+  { Icon: Award,         top: '58%', left: '84%', size: 40, opacity: 0.08, delay: '0.8s'  },
+  { Icon: CalendarCheck, top: '66%', left: '8%',  size: 32, opacity: 0.06, delay: '2.9s'  },
+  { Icon: BarChart3,     top: '72%', left: '56%', size: 44, opacity: 0.07, delay: '4.8s'  },
+  { Icon: MessageSquare, top: '80%', left: '26%', size: 28, opacity: 0.05, delay: '1.7s'  },
+  { Icon: Target,        top: '86%', left: '74%', size: 36, opacity: 0.07, delay: '3.9s'  },
 ];
 
 const ROTATE_MS = 4200;
@@ -74,6 +85,17 @@ export function LoginShowcase() {
         aria-hidden
       />
 
+      {/* Dot grid. Gives the panel a surface to sit on — without it the
+          gradient reads as flat and the icons look like they are floating in
+          nothing. Masked so it fades out before reaching the text. */}
+      <div
+        className="pointer-events-none absolute inset-0 opacity-[0.18]
+          [background-image:radial-gradient(circle,rgba(255,255,255,0.5)_1px,transparent_1px)]
+          [background-size:26px_26px]
+          [mask-image:radial-gradient(ellipse_at_center,black_20%,transparent_72%)]"
+        aria-hidden
+      />
+
       {/* Soft orbs, offset so they never pulse in unison */}
       <div className="pointer-events-none absolute -left-24 top-10 h-80 w-80 rounded-full bg-sky-400/20 blur-3xl motion-safe:animate-pulse-glow" aria-hidden />
       <div
@@ -82,24 +104,22 @@ export function LoginShowcase() {
         aria-hidden
       />
 
-      {/* Word cloud — the quiet backdrop, deliberately low contrast so it
-          never competes with the slogan in front of it. */}
+      {/* Icon constellation */}
       <div className="pointer-events-none absolute inset-0" aria-hidden>
-        {KEYWORDS.map((k) => (
-          <span
-            key={k.text}
-            className={`absolute select-none font-bold uppercase tracking-tight text-white/[0.055] motion-safe:animate-drift ${k.size}`}
-            style={{ top: k.top, left: k.left, animationDelay: k.delay }}
-          >
-            {k.text}
-          </span>
+        {ICONS.map(({ Icon, top, left, size, opacity, delay }, i) => (
+          <Icon
+            key={i}
+            strokeWidth={1.25}
+            className="absolute text-white motion-safe:animate-drift"
+            style={{ top, left, width: size, height: size, opacity, animationDelay: delay }}
+          />
         ))}
       </div>
 
       {/* ── Brand ─────────────────────────────────────────────────────── */}
       <div className="relative z-10 p-12">
         <div className="flex items-center gap-3">
-          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-white/10 backdrop-blur-sm ring-1 ring-white/20">
+          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-white/10 ring-1 ring-white/20 backdrop-blur-sm">
             <span className="text-xl font-bold text-white">«</span>
           </div>
           <div>
@@ -155,7 +175,7 @@ export function LoginShowcase() {
                 <div
                   className={`flex items-center gap-2 rounded-full px-3 py-2 ring-1 transition-all duration-500 ${
                     live
-                      ? 'bg-white/15 ring-white/30 shadow-lg shadow-sky-500/10'
+                      ? 'bg-white/15 shadow-lg shadow-sky-500/10 ring-white/30'
                       : 'bg-white/[0.04] ring-white/10'
                   }`}
                 >
