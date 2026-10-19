@@ -1,10 +1,14 @@
 import type { Metadata, Viewport } from 'next';
-import { Inter } from 'next/font/google';
+import { Caveat, Inter } from 'next/font/google';
 import './globals.css';
 import { Providers } from './providers';
 import { PwaRegister } from '@/components/shared/pwa-register';
 
 const inter = Inter({ subsets: ['latin'] });
+// The handwritten aside on the login screen. Exposed as a variable rather than
+// a className so only that one element pays for it; `display: swap` keeps it
+// from blocking first paint on a decorative flourish.
+const caveat = Caveat({ subsets: ['latin'], weight: ['600'], display: 'swap', variable: '--font-handwritten' });
 
 export const metadata: Metadata = {
   title: 'Counselling CRM',
@@ -39,7 +43,7 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body className={inter.className}>
+      <body className={`${inter.className} ${caveat.variable}`}>
         <Providers>{children}</Providers>
         <PwaRegister />
       </body>

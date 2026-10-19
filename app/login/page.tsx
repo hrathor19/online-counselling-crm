@@ -6,7 +6,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Loader2, AlertCircle } from 'lucide-react';
+import { AlertCircle, ArrowRight, Eye, EyeOff, Loader2, Lock, Mail, ShieldCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -27,6 +27,7 @@ function LoginFormInner() {
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   // Asked of the server rather than assumed: the provider only exists when
   // GOOGLE_CLIENT_ID/SECRET are set, so an install without them shows the
   // password form alone instead of a button that goes nowhere.
@@ -95,14 +96,17 @@ function LoginFormInner() {
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
         <div className="space-y-1.5">
           <Label htmlFor="email" className="text-sm font-medium">Email</Label>
-          <Input
-            id="email"
-            type="email"
-            placeholder="you@example.com"
-            autoComplete="email"
-            className="h-10"
-            {...register('email')}
-          />
+          <div className="relative">
+            <Mail className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground/50" />
+            <Input
+              id="email"
+              type="email"
+              placeholder="you@example.com"
+              autoComplete="email"
+              className="h-11 pl-10"
+              {...register('email')}
+            />
+          </div>
           {errors.email && (
             <p className="text-xs text-destructive">{errors.email.message}</p>
           )}
@@ -110,22 +114,41 @@ function LoginFormInner() {
 
         <div className="space-y-1.5">
           <Label htmlFor="password" className="text-sm font-medium">Password</Label>
-          <Input
-            id="password"
-            type="password"
-            placeholder="••••••••"
-            autoComplete="current-password"
-            className="h-10"
-            {...register('password')}
-          />
+          <div className="relative">
+            <Lock className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground/50" />
+            <Input
+              id="password"
+              type={showPassword ? 'text' : 'password'}
+              placeholder="Enter your password"
+              autoComplete="current-password"
+              className="h-11 pl-10 pr-10"
+              {...register('password')}
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword((v) => !v)}
+              // Labelled rather than icon-only: a screen reader otherwise
+              // announces an unnamed button next to the password field.
+              aria-label={showPassword ? 'Hide password' : 'Show password'}
+              className="absolute right-2 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-muted hover:text-foreground"
+            >
+              {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            </button>
+          </div>
           {errors.password && (
             <p className="text-xs text-destructive">{errors.password.message}</p>
           )}
+          {/* Not a link: this CRM has no self-service reset, so anything
+              clickable here would lead nowhere. The admin is the real route. */}
+          <p className="pt-0.5 text-right text-xs text-muted-foreground">
+            Forgot your password? Ask your administrator to reset it.
+          </p>
         </div>
 
-        <Button type="submit" className="mt-2 h-10 w-full text-sm font-semibold" disabled={isLoading || googleLoading}>
-          {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-          Sign In
+        <Button type="submit" className="group mt-1 h-11 w-full gap-2 text-sm font-semibold" disabled={isLoading || googleLoading}>
+          {isLoading
+            ? <Loader2 className="h-4 w-4 animate-spin" />
+            : <>Sign In <ArrowRight className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-0.5" /></>}
         </Button>
       </form>
 
@@ -140,7 +163,7 @@ function LoginFormInner() {
           <Button
             type="button"
             variant="outline"
-            className="h-10 w-full gap-2.5 text-sm font-semibold"
+            className="h-11 w-full gap-2.5 text-sm font-semibold"
             disabled={isLoading || googleLoading}
             // No `await`: the call navigates away, so anything after it never
             // runs. The spinner is cleared by the page unloading.
@@ -152,12 +175,16 @@ function LoginFormInner() {
             Continue with Google
           </Button>
 
-          <p className="mt-3 text-center text-[11px] leading-relaxed text-muted-foreground">
-            Use the Google account matching your CRM email. Signing in with Google does not
-            create an account — your administrator does that.
-          </p>
+
         </>
       )}
+      <div className="mt-5 flex gap-2.5 rounded-lg border border-border/60 bg-muted/40 p-3">
+        <ShieldCheck className="mt-px h-4 w-4 shrink-0 text-primary/70" />
+        <p className="text-[11px] leading-relaxed text-muted-foreground">
+          Secure access for authorised team members only. Signing in with Google never
+          creates an account — your administrator does that.
+        </p>
+      </div>
     </>
   );
 }
@@ -194,7 +221,7 @@ export default function LoginPage() {
           bg-indigo-400/15 blur-3xl motion-safe:animate-float dark:bg-indigo-500/10"
           style={{ animationDelay: '1.5s' }} aria-hidden />
 
-        <div className="relative z-10 w-full max-w-sm motion-safe:animate-fade-in-up">
+        <div className="relative z-10 w-full max-w-[400px] motion-safe:animate-fade-in-up">
 
           {/* Brand mark. On lg the showcase already carries the branding, so
               this collapses to just the greeting and the logo steps aside. */}
@@ -212,8 +239,8 @@ export default function LoginPage() {
           <div className="rounded-2xl border border-border/60 bg-card/90 shadow-xl shadow-black/5 backdrop-blur-sm
             dark:border-border/40 dark:shadow-black/40">
             <div className="px-6 pb-2 pt-6">
-              <h2 className="text-lg font-semibold text-card-foreground">Welcome back</h2>
-              <p className="mt-0.5 text-xs text-muted-foreground">Sign in to pick up where you left off</p>
+              <h2 className="text-[22px] font-bold tracking-tight text-card-foreground">Welcome back</h2>
+              <p className="mt-1 text-[13px] text-muted-foreground">Sign in to your KollegeApply CRM account</p>
             </div>
             <div className="px-6 pb-6 pt-4">
               <Suspense fallback={<div className="h-40 animate-pulse rounded-lg bg-muted" />}>
