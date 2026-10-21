@@ -12,6 +12,7 @@
     "db:migrate": "prisma migrate dev",
     "db:push": "prisma db push",
     "db:reset": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' scripts/reset-database.ts",
+    "db:create-admin": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' scripts/create-admin.ts",
     "db:seed-production": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' scripts/seed-production.ts",
     "db:backfill-interests": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' scripts/backfill-interests.ts",
     "db:seed": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' prisma/seed.ts",
