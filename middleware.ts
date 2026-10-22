@@ -18,8 +18,12 @@ const ROLE_ROUTES: Record<string, Role[]> = {
   // view TL/SA-only.
   '/dashboard/counselling-tl': ['SUPER_ADMIN', 'REPORTS', 'COUNSELLING_TL'],
   '/dashboard/counselling-tl/team': ['SUPER_ADMIN', 'COUNSELLING_TL'],
-  '/dashboard/counselling-agent': ['SUPER_ADMIN', 'COUNSELLING_AGENT'],
-  '/dashboard/counselling-agent/due-today': ['SUPER_ADMIN', 'COUNSELLING_AGENT'],
+  // COUNSELLING_TL because a TL now carries a queue of their own — these two
+  // pages are "my leads" and "my follow-ups", and both already scope to the
+  // signed-in user rather than to a role, so a TL sees their own work and
+  // nobody else's. See lib/assignable-users.ts.
+  '/dashboard/counselling-agent': ['SUPER_ADMIN', 'COUNSELLING_TL', 'COUNSELLING_AGENT'],
+  '/dashboard/counselling-agent/due-today': ['SUPER_ADMIN', 'COUNSELLING_TL', 'COUNSELLING_AGENT'],
   '/dashboard/counselling-agent/scheduled-calls': ['SUPER_ADMIN', 'REPORTS', 'COUNSELLING_TL', 'COUNSELLING_AGENT'],
   // More specific than the blanket '/dashboard/super-admin' rule above —
   // REPORTS can reach this one page if granted APPROVE_RECEIPTS via the
