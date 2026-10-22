@@ -5,6 +5,7 @@ import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { freshLeadIds, onTimeAgentIds } from '@/lib/attendance-policy';
 import { hasPermission, logActivity } from '@/lib/permissions';
+import { assignableUserWhere, resolveAssignee } from '@/lib/assignable-users';
 import { Feature } from '@prisma/client';
 
 const autoAssignSchema = z.object({
@@ -30,35 +31,48 @@ export async function POST(req: NextRequest) {
 
   const { leadIds, agentIds: restrictToAgentIds, resetFeedbacks } = parsed.data;
 
-  // Get TL's team
-  const tl = await prisma.user.findUnique({
-    where: { id: session.user.id },
-    select: { teamId: true },
-  });
-
-  if (!tl?.teamId && session.user.role === 'COUNSELLING_TL') {
-    return NextResponse.json({ success: false, error: 'You are not assigned to a team', code: 'NO_TEAM' }, { status: 400 });
-  }
-
-  // Get all active agents with their current lead counts for round-robin
-  const agents = await prisma.user.findMany({
+  /**
+   * Who this distribution may deal to.
+   *
+   * Shared with the single and bulk assign endpoints so all three agree —
+   * for a TL that is their own agents plus themselves, since a TL carries a
+   * queue of their own. See lib/assignable-users.ts.
+   *
+   * There is no "are you on a team?" guard any more. It tested `teamId` on
+   * the caller, which is null for exactly the role it was meant to protect:
+   * a TL leads a team rather than belonging to one. The real question is
+   * whether anyone is left to receive the leads, and the check below asks it.
+   */
+  const candidates = await prisma.user.findMany({
     where: {
-      role: 'COUNSELLING_AGENT',
-      isActive: true,
-      ...(session.user.role === 'COUNSELLING_TL' ? { managedById: session.user.id } : {}),
-      ...(restrictToAgentIds?.length ? { id: { in: restrictToAgentIds } } : {}),
+      AND: [
+        assignableUserWhere(session.user),
+        ...(restrictToAgentIds?.length ? [{ id: { in: restrictToAgentIds } }] : []),
+      ],
     },
     select: {
       id: true,
       name: true,
+      role: true,
       teamId: true,
       _count: { select: { assignedLeads: true } },
     },
     orderBy: { name: 'asc' },
   });
 
+  // A TL's leads carry the team they lead, not their own (null) teamId.
+  const agents = await Promise.all(
+    candidates.map(async (c) => ({
+      ...c,
+      teamId: (await resolveAssignee(prisma, c.id))?.teamId ?? null,
+    })),
+  );
+
   if (agents.length === 0) {
-    return NextResponse.json({ success: false, error: 'No active agents found', code: 'NO_AGENTS' }, { status: 400 });
+    return NextResponse.json(
+      { success: false, error: 'Nobody available to assign these leads to', code: 'NO_AGENTS' },
+      { status: 400 },
+    );
   }
 
   // Sort by current load (fewest leads first) for fair round-robin
@@ -77,7 +91,13 @@ export async function POST(req: NextRequest) {
    */
   const onTime = await onTimeAgentIds(prisma);
   const freshIds = resetFeedbacks ? new Set(leadIds) : await freshLeadIds(prisma, leadIds);
-  const freshAgents = onTime ? sorted.filter((a) => onTime.has(a.id)) : sorted;
+  // Only counselling agents are held to the check-in cutoff — the same
+  // carve-out freshLeadBlockReason makes. Without it a TL assigning a fresh
+  // lead to themselves is refused for not having punched in, on a rule that
+  // was never meant to apply to them.
+  const freshAgents = onTime
+    ? sorted.filter((a) => a.role !== 'COUNSELLING_AGENT' || onTime.has(a.id))
+    : sorted;
 
   if (freshIds.size > 0 && freshAgents.length === 0) {
     return NextResponse.json({
@@ -85,7 +105,7 @@ export async function POST(req: NextRequest) {
       code: 'NO_ON_TIME_AGENTS',
       error:
         `${freshIds.size} of the ${leadIds.length} selected lead${freshIds.size === 1 ? ' has' : 's have'} no feedback yet, ` +
-        'and no agent in this list checked in before today\'s cutoff. Leads with feedback can still be assigned.',
+        'and nobody in this list checked in before today\'s cutoff. Leads with feedback can still be assigned.',
     }, { status: 409 });
   }
 
