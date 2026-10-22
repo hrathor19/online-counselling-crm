@@ -4,6 +4,7 @@ import { z } from 'zod';
 import bcrypt from 'bcryptjs';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
+import { assignableUserWhere } from '@/lib/assignable-users';
 import { Role, UserStatus, WorkType } from '@prisma/client';
 import { generateEmployeeCode, logActivity } from '@/lib/permissions';
 import { sendWelcomeEmail } from '@/lib/welcome-email';
@@ -53,17 +54,13 @@ export async function GET(req: NextRequest) {
   const teamId = searchParams.get('teamId');
   const status = searchParams.get('status') as UserStatus | null;
 
-  // COUNSELLING_TL: can only fetch agents that are under their management
+  // COUNSELLING_TL: their own agents, plus themselves — a TL works a queue of
+  // their own, so they have to be pickable in the Assign To list. The rule is
+  // shared with the assign endpoints so the picker cannot offer someone the
+  // API would then refuse. See lib/assignable-users.ts.
   if (session.user.role === Role.COUNSELLING_TL) {
     const agents = await prisma.user.findMany({
-      where: {
-        role: Role.COUNSELLING_AGENT,
-        isActive: true,
-        OR: [
-          { managedById: session.user.id },
-          { team: { teamLeadId: session.user.id } },
-        ],
-      },
+      where: assignableUserWhere(session.user),
       select: {
         id: true, name: true, email: true, role: true, workType: true, isActive: true, status: true,
         employeeCode: true, phone: true, teamId: true, managedById: true,

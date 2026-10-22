@@ -19,6 +19,7 @@ export function getLeadWhereClause(user: SessionUser): Prisma.LeadWhereInput {
       //   (a) genuinely unassigned — available for them to assign
       //   (b) stamped with their team
       //   (c) held by an agent they manage, even if the stamp is stale
+      //   (d) assigned to the TL themselves — their own counselling queue
       // Pending/disapproved leads are never shown to TL.
       return {
         status: 'APPROVED',
@@ -34,6 +35,11 @@ export function getLeadWhereClause(user: SessionUser): Prisma.LeadWhereInput {
           // can only ever add leads the TL already owns via their agents — it
           // never widens access to another team's work.
           { assignedTo: { managedById: user.id } },
+          // A TL who takes a lead themselves. None of the clauses above reach
+          // it: it is no longer unassigned, and a TL is not managed by
+          // themselves — so without this the lead would vanish from the view
+          // of the one person now responsible for calling it.
+          { assignedToId: user.id },
         ],
       };
 

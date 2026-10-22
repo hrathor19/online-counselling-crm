@@ -43,7 +43,10 @@ export async function PATCH(req: NextRequest) {
     session.user.role === 'COUNSELLING_AGENT'
       ? { agentId: session.user.id }
       : session.user.role === 'COUNSELLING_TL'
-      ? { agent: { managedById: session.user.id } }
+      // Their agents' calls AND their own: a TL is not managed by themselves,
+      // so the managedById clause alone hides the follow-ups they scheduled
+      // on their own leads.
+      ? { OR: [{ agentId: session.user.id }, { agent: { managedById: session.user.id } }] }
       : {};
 
   try {
@@ -79,7 +82,10 @@ export async function GET(req: NextRequest) {
     session.user.role === 'COUNSELLING_AGENT'
       ? { agentId: session.user.id }
       : session.user.role === 'COUNSELLING_TL'
-      ? { agent: { managedById: session.user.id } }
+      // Their agents' calls AND their own: a TL is not managed by themselves,
+      // so the managedById clause alone hides the follow-ups they scheduled
+      // on their own leads.
+      ? { OR: [{ agentId: session.user.id }, { agent: { managedById: session.user.id } }] }
       : {}; // SA / REPORTS see all
 
   const statusWhere =

@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth';
 import { z } from 'zod';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
+import { canAssignTo, resolveAssignee } from '@/lib/assignable-users';
 import { freshLeadBlockReason, freshLeadIds } from '@/lib/attendance-policy';
 import { hasPermission, logActivity } from '@/lib/permissions';
 import { Feature } from '@prisma/client';
@@ -28,21 +29,13 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   const { agentId, resetFeedbacks } = parsed.data;
 
-  // Verify agent belongs to this TL — check via managedById OR team membership
-  if (session.user.role === 'COUNSELLING_TL') {
-    const agent = await prisma.user.findFirst({
-      where: {
-        id: agentId,
-        role: 'COUNSELLING_AGENT',
-        OR: [
-          { managedById: session.user.id },
-          { team: { teamLeadId: session.user.id } },
-        ],
-      },
-    });
-    if (!agent) {
-      return NextResponse.json({ success: false, error: 'Agent not under your management', code: 'FORBIDDEN' }, { status: 403 });
-    }
+  // Who this caller may hand a lead to — their own agents, and themselves if
+  // they are a TL taking it on. See lib/assignable-users.ts.
+  if (!(await canAssignTo(prisma, session.user, agentId))) {
+    return NextResponse.json(
+      { success: false, error: 'You cannot assign leads to that person', code: 'FORBIDDEN' },
+      { status: 403 },
+    );
   }
 
   const lead = await prisma.lead.findUnique({
@@ -103,10 +96,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     // which makes it count toward no team AND — because getLeadWhereClause
     // treats a null team as "unassigned, free to pick up" — leaves it visible
     // to every Team Lead rather than only the assignee's own.
-    const assignee = await tx.user.findUnique({
-      where: { id: agentId },
-      select: { teamId: true },
-    });
+    // A TL has no teamId of their own — they lead the team rather than belong
+    // to it — so the team to stamp is resolved rather than read. See
+    // lib/assignable-users.ts.
+    const assignee = await resolveAssignee(tx, agentId);
 
     return tx.lead.update({
       where: { id: params.id },

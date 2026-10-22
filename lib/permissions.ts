@@ -17,7 +17,10 @@ const DEFAULT_PERMISSIONS: Record<Role, Feature[]> = {
   // Masked by default because a TL's CSV export is already masked today (they
   // hold DOWNLOAD_DATA but not MASK_UNMASK_DATA under the old meaning) — this
   // keeps that true rather than quietly widening what they can see.
-  COUNSELLING_TL: [Feature.VIEW_LEADS, Feature.ASSIGN_LEADS, Feature.VIEW_REPORTS, Feature.MASK_UNMASK_DATA, Feature.ADD_SINGLE_LEAD],
+  // SUBMIT_FEEDBACK because a TL now carries a queue of their own: they can
+  // assign leads to themselves and are expected to call them and record the
+  // outcome, the same as any counsellor. See lib/assignable-users.ts.
+  COUNSELLING_TL: [Feature.VIEW_LEADS, Feature.ASSIGN_LEADS, Feature.VIEW_REPORTS, Feature.MASK_UNMASK_DATA, Feature.ADD_SINGLE_LEAD, Feature.SUBMIT_FEEDBACK],
   COUNSELLING_AGENT: [Feature.VIEW_LEADS, Feature.SUBMIT_FEEDBACK, Feature.ADD_SINGLE_LEAD],
 };
 

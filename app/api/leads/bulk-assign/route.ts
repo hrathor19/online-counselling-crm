@@ -5,6 +5,7 @@ import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { freshLeadBlockReason, freshLeadIds } from '@/lib/attendance-policy';
 import { hasPermission, logActivity } from '@/lib/permissions';
+import { canAssignTo, resolveAssignee } from '@/lib/assignable-users';
 import { Feature } from '@prisma/client';
 
 const bulkAssignSchema = z.object({
@@ -25,19 +26,13 @@ export async function POST(req: NextRequest) {
 
   const { leadIds, agentId } = parsed.data;
 
-  // Verify agent belongs to TL's team — check via managedById OR team membership
-  if (session.user.role === 'COUNSELLING_TL') {
-    const agent = await prisma.user.findFirst({
-      where: {
-        id: agentId,
-        role: 'COUNSELLING_AGENT',
-        OR: [
-          { managedById: session.user.id },
-          { team: { teamLeadId: session.user.id } },
-        ],
-      },
-    });
-    if (!agent) return NextResponse.json({ success: false, error: 'Agent not in your team', code: 'FORBIDDEN' }, { status: 403 });
+  // Who this caller may hand leads to — their own agents, and themselves if
+  // they are a TL taking them on. See lib/assignable-users.ts.
+  if (!(await canAssignTo(prisma, session.user, agentId))) {
+    return NextResponse.json(
+      { success: false, error: 'You cannot assign leads to that person', code: 'FORBIDDEN' },
+      { status: 403 },
+    );
   }
 
   // A late agent takes only leads that already carry feedback. Refused as a
@@ -60,7 +55,8 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const agent = await prisma.user.findUnique({ where: { id: agentId }, select: { teamId: true, name: true } });
+  // Resolved rather than read: a TL has no teamId of their own.
+  const agent = await resolveAssignee(prisma, agentId);
 
   // Fetch current assignee chain for each lead so we can shift it
   const currentLeads = await prisma.lead.findMany({

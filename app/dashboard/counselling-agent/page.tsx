@@ -88,10 +88,15 @@ export default function CounsellingAgentPage() {
   });
 
   const { data, isLoading } = useQuery({
-    queryKey: ['my-leads', search, page],
+    queryKey: ['my-leads', search, page, session?.user?.id],
     queryFn: () => {
       const params = new URLSearchParams({ page: String(page) });
       if (search) params.set('search', search);
+      // Pinned to the signed-in user rather than left to the role's default
+      // scope. For an agent that scope is already "my leads", but a Team Lead
+      // sees their whole team by default — and this page is My Leads, not the
+      // team's. The server still applies its own access rules on top.
+      if (session?.user?.id) params.set('assignedToId', session.user.id);
       return fetch(`/api/leads?${params}`).then((r) => r.json());
     },
     enabled: !!session?.user?.id,
