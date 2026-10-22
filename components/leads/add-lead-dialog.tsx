@@ -45,6 +45,7 @@ interface AddLeadResponse {
   college?: string | null;
   merged?: boolean;
   interestCount?: number;
+  assignedToSelf?: boolean;
   error?: unknown;
 }
 
@@ -144,7 +145,12 @@ export function AddLeadDialog({
           description: `${data.name} had already enquired, so ${data.college} was added to their interests (${data.interestCount} in total).`,
         });
       } else {
-        toast({ title: 'Lead added', description: `${data.name} has been added successfully.` });
+        toast({
+          title: 'Lead added',
+          description: data.assignedToSelf
+            ? `${data.name} is in your queue and ready to call.`
+            : `${data.name} has been added and is waiting to be assigned.`,
+        });
       }
       // Every list that could now be out of date. The + is reachable from any
       // page, so there is no single list to refresh.

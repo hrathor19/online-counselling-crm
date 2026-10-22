@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { addInterest, mergeOrFlagDuplicate } from '@/lib/lead-interest';
+import { COUNSELLOR_ROLES, resolveAssignee } from '@/lib/assignable-users';
 import { isMaskedRole } from '@/lib/permissions';
 import { maskContact } from '@/lib/data-masking';
 import { hasPermission } from '@/lib/permissions';
@@ -86,11 +87,33 @@ export async function POST(req: NextRequest) {
         })
       : null;
 
+    /**
+     * A lead typed in by hand goes straight to work.
+     *
+     * It is created APPROVED rather than queued for Lead Approvals: that
+     * queue exists to vet bulk CSV imports of unknown provenance, and the
+     * external ingest API already skips it for the same reason. Waiting on a
+     * second pair of eyes for a lead somebody is looking at on screen only
+     * means it cannot be called.
+     *
+     * It is then assigned to whoever added it — but only if they are someone
+     * who can actually work a lead. Assigning one to an Operations or Reports
+     * user would strand it: getLeadWhereClause shows a TL unassigned leads,
+     * their team's, and their agents' — none of which covers a lead held by a
+     * non-counsellor, so no TL could see it to pass it on. Those roles get an
+     * approved, unassigned lead instead, which lands in the Unassigned pool
+     * for a TL to distribute, exactly as an API-ingested lead does.
+     */
+    const self = COUNSELLOR_ROLES.includes(session.user.role)
+      ? await resolveAssignee(prisma, session.user.id)
+      : null;
+    const now = new Date();
+
     const lead = await prisma.lead.create({
       data: {
         // Not @updatedAt any more (see schema.prisma) — a new lead reads as
         // its creation time until the first feedback advances it.
-        updatedAt:   new Date(),
+        updatedAt:   now,
         name:        d.name.trim(),
         email,
         phone:       d.phone.trim(),
@@ -103,8 +126,19 @@ export async function POST(req: NextRequest) {
         leadOrigin:  d.leadOrigin?.trim() || null,
         leadZone:    collegeConfig?.collegeZone ?? null,
         dealType:    collegeConfig?.collegeDealType ?? null,
-        status:      'PENDING',
+        status:       'APPROVED',
+        approvedById: session.user.id,
+        approvedAt:   now,
         uploadedById: session.user.id,
+        ...(self
+          ? {
+              assignedToId: self.id,
+              assignedById: session.user.id,
+              assignedAt:   now,
+              // The team they lead, for a TL — see lib/assignable-users.ts.
+              teamId:       self.teamId,
+            }
+          : {}),
       },
     });
 
@@ -113,7 +147,9 @@ export async function POST(req: NextRequest) {
     // look like its first and the "+1" badge would under-count by one.
     await addInterest(prisma, lead.id, college, d.course?.trim() || null, 'MANUAL');
 
-    return NextResponse.json(lead, { status: 201 });
+    // `assignedToSelf` lets the form say so, rather than the operator having
+    // to go and look at whether the lead landed in their own queue.
+    return NextResponse.json({ ...lead, assignedToSelf: self !== null }, { status: 201 });
   } catch (err: unknown) {
     console.error('[leads POST]', err);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
