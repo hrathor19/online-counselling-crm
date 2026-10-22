@@ -189,19 +189,28 @@ export function validateRowDetailed(
 
   // ── Course (optional, validate if provided) ──
   const course = row.course?.trim() ?? '';
-  if (course) {
-    if (maps) {
-      const canonical = maps.courseMap.get(course.toLowerCase());
-      if (!canonical) {
-        errors.push(`Course "${course}" is not in the valid list`);
-      } else {
-        normalized.course = canonical;
-      }
+  if (!course) {
+    normalized.course = '';
+  } else if (maps && maps.courseMap.size > 0) {
+    // Matched against the list a Super Admin maintains under Manage
+    // Dropdowns → Courses, case- and whitespace-insensitively, and stored
+    // with that list's spelling. The message names the screen that fixes it,
+    // because the list is editable in-app now rather than coming from the
+    // LMS catalogue.
+    //
+    // Mirrors the college rule below, including the empty case: no
+    // configured courses means "no rule defined yet", not "reject
+    // everything" — otherwise the first upload after setting the CRM up
+    // fails on every row. The same check runs again server-side, where it
+    // cannot be skipped by posting to the route directly.
+    const canonical = maps.courseMap.get(course.toLowerCase());
+    if (!canonical) {
+      errors.push(`Course "${course}" is not in Manage Dropdowns → Courses`);
     } else {
-      normalized.course = course;
+      normalized.course = canonical;
     }
   } else {
-    normalized.course = '';
+    normalized.course = course;
   }
 
   // ── Lead code (optional, but must be well formed when present) ──

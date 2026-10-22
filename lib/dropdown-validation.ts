@@ -15,6 +15,16 @@ export interface DropdownValidationSets {
    */
   collegeNameMap: Map<string, string>;
   /**
+   * Course name (trimmed, lowercased) → the name exactly as configured under
+   * Manage Dropdowns → Courses.
+   *
+   * The course list is maintained in-app rather than pulled from the LMS
+   * catalogue, so an upload is checked against the courses this team
+   * actually sells and the lead is stored with the curated spelling — "  online
+   * mba  " lands as "Online MBA" rather than as a third variant of it.
+   */
+  courseNameMap: Map<string, string>;
+  /**
    * College name (lowercased) → the Zone and Deal Type configured for that
    * college in Manage Colleges. Leads inherit these on ingest, so both CSV
    * upload and the API read them from here rather than from the payload.
@@ -44,6 +54,7 @@ export async function buildDropdownValidationSets(): Promise<DropdownValidationS
 
   const sets: Partial<Record<DropdownType, Set<string>>> = {};
   const collegeNameMap = new Map<string, string>();
+  const courseNameMap = new Map<string, string>();
   const collegeAttributeMap = new Map<string, { zone: string | null; dealType: string | null }>();
   const leadCodeCallingTypeMap = new Map<string, string>();
 
@@ -57,6 +68,12 @@ export async function buildDropdownValidationSets(): Promise<DropdownValidationS
         zone: opt.collegeZone?.trim() || null,
         dealType: opt.collegeDealType?.trim() || null,
       });
+    } else if (opt.type === DropdownType.COURSE) {
+      // Same treatment as a college: the curated list decides the spelling,
+      // and the value arriving from a CSV is typed by hand. Kept out of
+      // `sets` because matching there is case-sensitive, which would reject
+      // "online mba" for a configured "Online MBA".
+      courseNameMap.set(opt.value.trim().toLowerCase(), opt.value.trim());
     } else if (opt.type === DropdownType.LEAD_CODE) {
       // Not added to `sets`: a lead source is a mapping key, not a value anything
       // is validated against — a CSV may carry any code at all.
@@ -69,7 +86,7 @@ export async function buildDropdownValidationSets(): Promise<DropdownValidationS
     }
   }
 
-  return { sets, collegeNameMap, collegeAttributeMap, leadCodeCallingTypeMap };
+  return { sets, collegeNameMap, courseNameMap, collegeAttributeMap, leadCodeCallingTypeMap };
 }
 
 /**

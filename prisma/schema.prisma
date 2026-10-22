@@ -42,6 +42,10 @@ enum LeadStatus {
 
 enum DropdownType {
   COLLEGE
+  /// The course list the Add Lead form and CSV upload validate against.
+  /// Maintained by a Super Admin under Manage Dropdowns rather than pulled
+  /// from the LMS, so the floor offers the courses this team actually sells.
+  COURSE
   /// A lead code (the `campaign` field on a Lead) mapped to the Data Calling
   /// Type every lead carrying that code should show. See lib/lead-code.ts.
   LEAD_CODE

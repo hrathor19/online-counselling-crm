@@ -72,12 +72,12 @@ export async function POST(req: NextRequest) {
     // over whatever the CSV carried, exactly as it does when the mapping is
     // saved. It comes off the same prebuilt object as the college attributes,
     // so there is one loader rather than two that could drift.
-    const { collegeNameMap, collegeAttributeMap, leadCodeCallingTypeMap } =
+    const { collegeNameMap, courseNameMap, collegeAttributeMap, leadCodeCallingTypeMap } =
       await buildDropdownValidationSets();
 
     // ── Validate each lead against dropdown options ───────────────────────────
     type LeadInput = typeof leads[number];
-    type ResolvedLead = LeadInput & { _resolvedCollege?: string };
+    type ResolvedLead = LeadInput & { _resolvedCollege?: string; _resolvedCourse?: string };
     const validLeads:   ResolvedLead[] = [];
     const invalidLeads: { row: number; email: string; errors: string[] }[] = [];
 
@@ -103,6 +103,33 @@ export async function POST(req: NextRequest) {
       }
 
       /**
+       * Course. Checked here and not only in the browser for the same reason
+       * as the lead code below: a direct POST to this route skips the
+       * browser entirely. Matched case- and whitespace-insensitively against
+       * the curated list and stored with its spelling, so "  online mba  "
+       * and "ONLINE MBA" both land as the one configured "Online MBA"
+       * instead of fragmenting the column into three values nothing can
+       * group by.
+       *
+       * With no courses configured the raw value is kept rather than every
+       * row being rejected — the same "no rule defined yet" stance the
+       * college check takes, so an upload is not blocked by a list the admin
+       * has not filled in yet.
+       */
+      let resolvedCourse: string | undefined;
+      const rawCourse = lead.course?.trim() ?? '';
+      if (rawCourse) {
+        if (courseNameMap.size > 0) {
+          resolvedCourse = courseNameMap.get(rawCourse.toLowerCase());
+          if (!resolvedCourse) {
+            errs.push(`course "${rawCourse}" is not in Manage Dropdowns → Courses`);
+          }
+        } else {
+          resolvedCourse = rawCourse;
+        }
+      }
+
+      /**
        * Lead code. Enforced here and not only in the browser, because the
        * browser check can be bypassed by posting to this route directly — and
        * because a malformed code silently costs the lead its Data Calling Type,
@@ -122,7 +149,7 @@ export async function POST(req: NextRequest) {
       if (errs.length > 0) {
         invalidLeads.push({ row: i + 2, email: lead.email, errors: errs }); // row +2: header=1, 0-indexed
       } else {
-        validLeads.push({ ...lead, _resolvedCollege: resolvedCollege });
+        validLeads.push({ ...lead, _resolvedCollege: resolvedCollege, _resolvedCourse: resolvedCourse });
       }
     });
 
@@ -135,6 +162,13 @@ export async function POST(req: NextRequest) {
       const resolvedValidPre = validLeads.map((l) => ({
         ...l,
         college: l._resolvedCollege ?? l.college,
+        // Curated spelling, for the same reason as the college: the interest
+        // history and every course filter have to match on one value.
+        // Normalised to null here rather than at each use: the lead insert
+        // already coerces '' to null, so without this a blank course reached
+        // the interest rows as '' and the two columns disagreed about how
+        // "no course" is spelled.
+        course: (l._resolvedCourse ?? l.course)?.trim() || null,
       }));
 
       /**

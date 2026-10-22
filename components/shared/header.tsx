@@ -23,6 +23,8 @@ const PAGE_TITLES: Record<string, string> = {
   '/dashboard/super-admin/activity-logs': 'Activity Logs',
   '/dashboard/super-admin/configurations/priority-settings': 'Priority Settings',
   '/dashboard/super-admin/feedback-options': 'Feedback Options',
+  '/dashboard/super-admin/manage-courses': 'Manage Courses',
+  '/dashboard/super-admin/manage-colleges': 'Manage Colleges',
   '/dashboard/operations': 'Upload Leads',
   '/dashboard/reports': 'Lead Approvals',
   '/dashboard/leads': 'All Leads',

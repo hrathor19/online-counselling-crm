@@ -172,6 +172,12 @@ const NAV: NavEntry[] = [
         roles: ['SUPER_ADMIN'],
       },
       {
+        href: '/dashboard/super-admin/manage-courses',
+        label: 'Courses',
+        icon: GraduationCap,
+        roles: ['SUPER_ADMIN'],
+      },
+      {
         href: '/dashboard/super-admin/manage-colleges',
         label: 'Colleges',
         icon: GraduationCap,
