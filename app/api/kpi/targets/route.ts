@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { z } from 'zod';
-import { KpiPeriod, Prisma } from '@prisma/client';
+import { KpiPeriod, Prisma, Feature } from '@prisma/client';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
-import { logActivity } from '@/lib/permissions';
+import { hasPermission, logActivity } from '@/lib/permissions';
 import {
   KPI_SOURCES, KPI_PERIODS, computeKpiActual, kpiPeriodRange, seedDefaultKpisIfEmpty, kpiScore,
   kpiCustomRange, MAX_CUSTOM_RANGE_DAYS, isSnapshotSource,
@@ -31,7 +31,10 @@ async function agentScope(viewer: { id: string; role: string }): Promise<Prisma.
       OR: [{ managedById: viewer.id }, { team: { teamLeadId: viewer.id } }],
     };
   }
-  if (viewer.role === 'SUPER_ADMIN' || viewer.role === 'REPORTS') {
+  // OPERATIONS alongside the other two back-office roles: they set targets
+  // now, which is impossible if the agent list they are setting them for
+  // comes back empty.
+  if (viewer.role === 'SUPER_ADMIN' || viewer.role === 'REPORTS' || viewer.role === 'OPERATIONS') {
     return { role: 'COUNSELLING_AGENT', isActive: true };
   }
   return null;
@@ -246,8 +249,8 @@ const putSchema = z.object({
 export async function PUT(req: NextRequest) {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  if (session.user.role !== 'SUPER_ADMIN') {
-    return NextResponse.json({ error: 'Only a Super Admin can set KPI targets' }, { status: 403 });
+  if (!(await hasPermission(session.user.role, Feature.MANAGE_KPI))) {
+    return NextResponse.json({ error: 'You do not have permission to set KPI targets' }, { status: 403 });
   }
 
   const parsed = putSchema.safeParse(await req.json().catch(() => null));

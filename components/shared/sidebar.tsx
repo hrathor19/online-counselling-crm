@@ -71,7 +71,7 @@ const NAV: NavEntry[] = [
     href: '/dashboard/leads',
     label: 'All Leads',
     icon: List,
-    roles: ['SUPER_ADMIN', 'REPORTS', 'COUNSELLING_TL', 'COUNSELLING_AGENT'],
+    roles: ['SUPER_ADMIN', 'REPORTS', 'OPERATIONS', 'COUNSELLING_TL', 'COUNSELLING_AGENT'],
     // mirrors /api/leads GET, which allows VIEW_LEADS or VIEW_REPORTS
     features: ['VIEW_LEADS', 'VIEW_REPORTS'],
   },
@@ -96,7 +96,7 @@ const NAV: NavEntry[] = [
     // REPORTS is read-only here (page has no mark-done/cancel actions) —
     // mirrors /api/leads/scheduled-calls, which already scopes REPORTS
     // the same as SUPER_ADMIN (sees everything, no team restriction).
-    roles: ['SUPER_ADMIN', 'REPORTS', 'COUNSELLING_TL', 'COUNSELLING_AGENT'],
+    roles: ['SUPER_ADMIN', 'REPORTS', 'OPERATIONS', 'COUNSELLING_TL', 'COUNSELLING_AGENT'],
   },
   {
     type: 'group',
@@ -163,25 +163,30 @@ const NAV: NavEntry[] = [
     key: 'manage-dropdowns',
     label: 'Manage Dropdowns',
     icon: Settings2,
-    roles: ['SUPER_ADMIN'],
+    // No `features` here — a group is shown when at least one child is, and
+    // the children carry MANAGE_DROPDOWNS.
+    roles: ['SUPER_ADMIN', 'REPORTS', 'OPERATIONS'],
     children: [
       {
         href: '/dashboard/super-admin/feedback-options',
         label: 'Feedbacks',
         icon: MessageSquare,
-        roles: ['SUPER_ADMIN'],
+        roles: ['SUPER_ADMIN', 'REPORTS', 'OPERATIONS'],
+        features: ['MANAGE_DROPDOWNS'],
       },
       {
         href: '/dashboard/super-admin/manage-courses',
         label: 'Courses',
         icon: GraduationCap,
-        roles: ['SUPER_ADMIN'],
+        roles: ['SUPER_ADMIN', 'REPORTS', 'OPERATIONS'],
+        features: ['MANAGE_DROPDOWNS'],
       },
       {
         href: '/dashboard/super-admin/manage-colleges',
         label: 'Colleges',
         icon: GraduationCap,
-        roles: ['SUPER_ADMIN'],
+        roles: ['SUPER_ADMIN', 'REPORTS', 'OPERATIONS'],
+        features: ['MANAGE_DROPDOWNS'],
       },
     ],
   },
@@ -245,7 +250,7 @@ const NAV: NavEntry[] = [
     // An agent sees only their own targets and a TL only their team's — both
     // read-only, enforced server-side in /api/kpi/targets. They are the people
     // the targets are about, so hiding the page from them would be perverse.
-    roles: ['SUPER_ADMIN', 'REPORTS', 'COUNSELLING_TL', 'COUNSELLING_AGENT'],
+    roles: ['SUPER_ADMIN', 'REPORTS', 'OPERATIONS', 'COUNSELLING_TL', 'COUNSELLING_AGENT'],
     exact: true,
   },
   {
@@ -256,7 +261,7 @@ const NAV: NavEntry[] = [
     // Agents are included for the group only so they can reach "Reports", which
     // shows them their own numbers. Performance Analysis below stays closed to
     // them — it is an org-wide analytics view.
-    roles: ['SUPER_ADMIN', 'REPORTS', 'COUNSELLING_TL', 'COUNSELLING_AGENT'],
+    roles: ['SUPER_ADMIN', 'REPORTS', 'OPERATIONS', 'COUNSELLING_TL', 'COUNSELLING_AGENT'],
     children: [
       {
         href: '/dashboard/super-admin/performance',
@@ -268,7 +273,7 @@ const NAV: NavEntry[] = [
         // their own team, so it doubles as their team's scorecard. Needs the
         // matching, more-specific rule in middleware.ts — the blanket
         // '/dashboard/super-admin' rule would otherwise bounce them.
-        roles: ['SUPER_ADMIN', 'REPORTS', 'COUNSELLING_TL'],
+        roles: ['SUPER_ADMIN', 'REPORTS', 'OPERATIONS', 'COUNSELLING_TL'],
         exact: true,
         features: ['VIEW_REPORTS'],
       },
@@ -280,7 +285,7 @@ const NAV: NavEntry[] = [
         // manager everyone. The scope is derived from the session server-side
         // in /api/reports/agent-performance, never from a request parameter,
         // so this entry being visible cannot widen anyone's view.
-        roles: ['SUPER_ADMIN', 'REPORTS', 'COUNSELLING_TL', 'COUNSELLING_AGENT'],
+        roles: ['SUPER_ADMIN', 'REPORTS', 'OPERATIONS', 'COUNSELLING_TL', 'COUNSELLING_AGENT'],
         exact: true,
       },
     ],
@@ -290,7 +295,7 @@ const NAV: NavEntry[] = [
     href: '/dashboard/reports/analytics',
     label: 'Analytics',
     icon: BarChart3,
-    roles: ['SUPER_ADMIN', 'COUNSELLING_TL', 'REPORTS'],
+    roles: ['SUPER_ADMIN', 'COUNSELLING_TL', 'REPORTS', 'OPERATIONS'],
     features: ['VIEW_REPORTS'],
   },
   {

@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { z } from 'zod';
 import { authOptions } from '@/lib/auth';
-import { Prisma } from '@prisma/client';
+import { Prisma, Feature } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
+import { hasPermission } from '@/lib/permissions';
 import { COLLEGE_ZONES, COLLEGE_DEAL_TYPES, COLLEGE_CLIENT_TYPES } from '@/lib/college-attributes';
 import { checkLandingPageUrl } from '@/lib/landing-page';
 import { applyLeadCodeMapping } from '@/lib/lead-code';
@@ -25,7 +26,7 @@ const updateSchema = z.object({
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getServerSession(authOptions);
-  if (!session || session.user.role !== 'SUPER_ADMIN') {
+  if (!session || !(await hasPermission(session.user.role, Feature.MANAGE_DROPDOWNS))) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
@@ -89,7 +90,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
 export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getServerSession(authOptions);
-  if (!session || session.user.role !== 'SUPER_ADMIN') {
+  if (!session || !(await hasPermission(session.user.role, Feature.MANAGE_DROPDOWNS))) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 

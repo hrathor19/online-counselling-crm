@@ -9,8 +9,17 @@ const DEFAULT_PERMISSIONS: Record<Role, Feature[]> = {
   SUPER_ADMIN: Object.values(Feature),
   // MASK_UNMASK_DATA now means "sees masked data", so REPORTS no longer carries
   // it — they read real values today and still do.
-  REPORTS: [Feature.VIEW_REPORTS, Feature.DOWNLOAD_DATA, Feature.APPROVE_LEADS, Feature.ADD_SINGLE_LEAD],
-  OPERATIONS: [Feature.UPLOAD_LEADS, Feature.MASK_UNMASK_DATA, Feature.ADD_SINGLE_LEAD],
+  // Back-office roles. Both read the whole pipeline and curate the reference
+  // data, and neither holds SUBMIT_FEEDBACK or ASSIGN_LEADS — they look at
+  // leads and the numbers, they do not work the queue.
+  REPORTS: [
+    Feature.VIEW_REPORTS, Feature.DOWNLOAD_DATA, Feature.APPROVE_LEADS, Feature.ADD_SINGLE_LEAD,
+    Feature.VIEW_LEADS, Feature.MANAGE_DROPDOWNS, Feature.MANAGE_KPI,
+  ],
+  OPERATIONS: [
+    Feature.UPLOAD_LEADS, Feature.MASK_UNMASK_DATA, Feature.ADD_SINGLE_LEAD,
+    Feature.VIEW_LEADS, Feature.VIEW_REPORTS, Feature.MANAGE_DROPDOWNS, Feature.MANAGE_KPI,
+  ],
   // VIEW_REPORTS included because TLs have always had Analytics/performance
   // access (previously via hardcoded role lists in those routes) — the matrix
   // just didn't reflect it. Toggle it off in Manage Permissions to revoke.

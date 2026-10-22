@@ -30,6 +30,8 @@ const FEATURES = [
   { key: 'VIEW_LEADS', label: 'View Leads' },
   { key: 'SUBMIT_FEEDBACK', label: 'Submit Feedback' },
   { key: 'APPROVE_RECEIPTS', label: 'Approve Receipts' },
+  { key: 'MANAGE_DROPDOWNS', label: 'Manage Dropdowns (colleges, courses, feedback)' },
+  { key: 'MANAGE_KPI', label: 'Manage KPI Targets' },
 ] as const;
 
 type RoleKey = typeof ROLES[number]['key'];

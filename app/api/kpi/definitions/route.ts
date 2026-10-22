@@ -2,10 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { z } from 'zod';
 import { KPI_SOURCES } from '@/lib/kpi';
-import { KpiSource, ReceiptType } from '@prisma/client';
+import { KpiSource, ReceiptType, Feature } from '@prisma/client';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
-import { logActivity } from '@/lib/permissions';
+import { hasPermission, logActivity } from '@/lib/permissions';
 
 /**
  * Create, edit and delete KPI definitions.
@@ -67,8 +67,10 @@ function configError(d: ReturnType<typeof normalise>): string | null {
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
   if (!session) return { error: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }) };
-  if (session.user.role !== 'SUPER_ADMIN') {
-    return { error: NextResponse.json({ error: 'Only a Super Admin can change KPIs' }, { status: 403 }) };
+  // MANAGE_KPI rather than a role check, so the back-office roles can own the
+  // targets without also being handed everything else a Super Admin can do.
+  if (!(await hasPermission(session.user.role, Feature.MANAGE_KPI))) {
+    return { error: NextResponse.json({ error: 'You do not have permission to change KPIs' }, { status: 403 }) };
   }
   return { session };
 }

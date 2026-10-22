@@ -3,10 +3,11 @@ import { getServerSession } from 'next-auth';
 import { z } from 'zod';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
+import { hasPermission } from '@/lib/permissions';
 import { COLLEGE_ZONES, COLLEGE_DEAL_TYPES, COLLEGE_CLIENT_TYPES } from '@/lib/college-attributes';
 import { checkLandingPageUrl } from '@/lib/landing-page';
 import { applyLeadCodeMapping } from '@/lib/lead-code';
-import { DropdownType } from '@prisma/client';
+import { DropdownType, Feature } from '@prisma/client';
 
 const VALID_TYPES = Object.values(DropdownType);
 
@@ -79,7 +80,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions);
-  if (!session || session.user.role !== 'SUPER_ADMIN') {
+  if (!session || !(await hasPermission(session.user.role, Feature.MANAGE_DROPDOWNS))) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 

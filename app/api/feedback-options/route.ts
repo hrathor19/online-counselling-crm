@@ -3,6 +3,8 @@ import { getServerSession } from 'next-auth';
 import { z } from 'zod';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
+import { Feature } from '@prisma/client';
+import { hasPermission } from '@/lib/permissions';
 
 const createSchema = z.object({
   label: z.string().min(1).max(100),
@@ -36,7 +38,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions);
-  if (!session || session.user.role !== 'SUPER_ADMIN') {
+  if (!session || !(await hasPermission(session.user.role, Feature.MANAGE_DROPDOWNS))) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 

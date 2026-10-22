@@ -32,6 +32,15 @@ enum Feature {
   VIEW_LEADS
   SUBMIT_FEEDBACK
   APPROVE_RECEIPTS
+  /// Maintaining the lists under Manage Dropdowns — colleges, courses and
+  /// feedback options. Separate from being a Super Admin so a back-office
+  /// role can curate the lists without also gaining user management, bulk
+  /// delete and the Configurations screens that sit under the same route.
+  MANAGE_DROPDOWNS
+  /// Creating KPI definitions and setting targets. Split from MANAGE_DROPDOWNS
+  /// because "who may edit the course list" and "who may set the floor's
+  /// numbers" are different questions with different answers.
+  MANAGE_KPI
 }
 
 enum LeadStatus {

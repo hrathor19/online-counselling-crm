@@ -55,8 +55,16 @@ export function getLeadWhereClause(user: SessionUser): Prisma.LeadWhereInput {
       return {};
 
     case 'OPERATIONS':
-      // Operations sees only leads they uploaded (all statuses)
-      return { uploadedById: user.id };
+      // Operations reads the whole pipeline, like Reports. It used to be
+      // "only what I uploaded", which made the All Leads page show an
+      // Operations user a slice of the data rather than the data — and the
+      // point of giving them the page is checking what came in, including
+      // the leads that arrived through the API or another uploader.
+      //
+      // Read-only in practice rather than by this clause: the role holds
+      // neither SUBMIT_FEEDBACK nor ASSIGN_LEADS, so every write path a lead
+      // has refuses them. See DEFAULT_PERMISSIONS in lib/permissions.ts.
+      return {};
 
     case 'SUPER_ADMIN':
       // SA sees everything, no restriction
