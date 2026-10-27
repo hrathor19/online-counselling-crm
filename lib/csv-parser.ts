@@ -34,6 +34,7 @@ export interface ValidationMaps {
   cityMap: Map<string, string>;         // lowercase → canonical
   stateMap: Map<string, string>;
   courseMap: Map<string, string>;
+  leadSourceMap: Map<string, string>;   // lead source.lower → canonical
   collegeNameMap: Map<string, string>;   // college name.lower → canonical name
 }
 
@@ -214,13 +215,33 @@ export function validateRowDetailed(
     normalized.course = course;
   }
 
-  // ── Lead code (optional, but must be well formed when present) ──
+  /**
+   * Lead source: optional, matched against the configured list when there is
+   * one, format-checked when there is not.
+   *
+   * Membership replaces the character rule rather than adding to it. The
+   * rule exists to catch typos in free text, and once an admin has curated
+   * the list their own entries are the definition of correct — "Google Ads"
+   * and "Meta-Ads" are perfectly reasonable names that the letters-digits-
+   * underscore rule would otherwise reject.
+   */
   const leadCode = row.campaign?.trim() ?? '';
-  const leadCodeMsg = leadCodeError(leadCode);
-  if (leadCodeMsg) errors.push(leadCodeMsg);
-  normalized.campaign = leadCode;
+  if (!leadCode) {
+    normalized.campaign = '';
+  } else if (maps && maps.leadSourceMap.size > 0) {
+    const canonical = maps.leadSourceMap.get(leadCode.toLowerCase());
+    if (!canonical) {
+      errors.push(`Lead Source "${leadCode}" is not in Manage Dropdowns → Lead Sources`);
+    } else {
+      normalized.campaign = canonical;
+    }
+  } else {
+    const leadCodeMsg = leadCodeError(leadCode);
+    if (leadCodeMsg) errors.push(leadCodeMsg);
+    normalized.campaign = leadCode;
+  }
 
-  // ── College (required — the CSV carries the college NAME) ──
+  // ── College (optional — the CSV carries the college NAME) ──
   const college = row.college?.trim() ?? '';
   if (!college) {
     // Optional now. A lead with no college still reaches a counsellor, who

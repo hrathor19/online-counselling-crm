@@ -35,6 +35,7 @@ const ROLE_ROUTES: Record<string, Role[]> = {
   // whether an edit is allowed.
   '/dashboard/super-admin/feedback-options': ['SUPER_ADMIN', 'REPORTS', 'OPERATIONS'],
   '/dashboard/super-admin/manage-courses':   ['SUPER_ADMIN', 'REPORTS', 'OPERATIONS'],
+  '/dashboard/super-admin/manage-lead-sources': ['SUPER_ADMIN', 'REPORTS', 'OPERATIONS'],
   '/dashboard/super-admin/manage-colleges':  ['SUPER_ADMIN', 'REPORTS', 'OPERATIONS'],
   '/dashboard/super-admin/receipt-approvals': ['SUPER_ADMIN', 'REPORTS'],
   // Same exception, same reasoning: the Reports & Performance page lives under

@@ -25,6 +25,12 @@ export interface DropdownValidationSets {
    */
   courseNameMap: Map<string, string>;
   /**
+   * Lead source (trimmed, lowercased) → the name exactly as configured under
+   * Manage Dropdowns → Lead Sources. Empty when none are configured, which
+   * means "no rule defined yet" rather than "reject everything".
+   */
+  leadSourceNameMap: Map<string, string>;
+  /**
    * College name (lowercased) → the Zone and Deal Type configured for that
    * college in Manage Colleges. Leads inherit these on ingest, so both CSV
    * upload and the API read them from here rather than from the payload.
@@ -55,6 +61,7 @@ export async function buildDropdownValidationSets(): Promise<DropdownValidationS
   const sets: Partial<Record<DropdownType, Set<string>>> = {};
   const collegeNameMap = new Map<string, string>();
   const courseNameMap = new Map<string, string>();
+  const leadSourceNameMap = new Map<string, string>();
   const collegeAttributeMap = new Map<string, { zone: string | null; dealType: string | null }>();
   const leadCodeCallingTypeMap = new Map<string, string>();
 
@@ -75,8 +82,10 @@ export async function buildDropdownValidationSets(): Promise<DropdownValidationS
       // "online mba" for a configured "Online MBA".
       courseNameMap.set(opt.value.trim().toLowerCase(), opt.value.trim());
     } else if (opt.type === DropdownType.LEAD_CODE) {
-      // Not added to `sets`: a lead source is a mapping key, not a value anything
-      // is validated against — a CSV may carry any code at all.
+      // A lead source is now a curated list as well as a mapping key, so it
+      // gets a name map like colleges and courses. Still kept out of `sets`,
+      // whose matching is case-sensitive.
+      leadSourceNameMap.set(opt.value.trim().toLowerCase(), opt.value.trim());
       if (opt.leadCodeCallingType) {
         leadCodeCallingTypeMap.set(opt.value.trim().toLowerCase(), opt.leadCodeCallingType);
       }
@@ -86,7 +95,7 @@ export async function buildDropdownValidationSets(): Promise<DropdownValidationS
     }
   }
 
-  return { sets, collegeNameMap, courseNameMap, collegeAttributeMap, leadCodeCallingTypeMap };
+  return { sets, collegeNameMap, courseNameMap, leadSourceNameMap, collegeAttributeMap, leadCodeCallingTypeMap };
 }
 
 /**

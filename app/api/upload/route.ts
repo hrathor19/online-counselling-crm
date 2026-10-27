@@ -76,12 +76,12 @@ export async function POST(req: NextRequest) {
     // over whatever the CSV carried, exactly as it does when the mapping is
     // saved. It comes off the same prebuilt object as the college attributes,
     // so there is one loader rather than two that could drift.
-    const { collegeNameMap, courseNameMap, collegeAttributeMap, leadCodeCallingTypeMap } =
+    const { collegeNameMap, courseNameMap, leadSourceNameMap, collegeAttributeMap, leadCodeCallingTypeMap } =
       await buildDropdownValidationSets();
 
     // ── Validate each lead against dropdown options ───────────────────────────
     type LeadInput = typeof leads[number];
-    type ResolvedLead = LeadInput & { _resolvedCollege?: string; _resolvedCourse?: string };
+    type ResolvedLead = LeadInput & { _resolvedCollege?: string; _resolvedCourse?: string; _resolvedLeadSource?: string };
     const validLeads:   ResolvedLead[] = [];
     const invalidLeads: { row: number; email: string; errors: string[] }[] = [];
 
@@ -144,14 +144,34 @@ export async function POST(req: NextRequest) {
       }
 
       /**
-       * Lead code. Enforced here and not only in the browser, because the
-       * browser check can be bypassed by posting to this route directly — and
-       * because a malformed code silently costs the lead its Data Calling Type,
-       * which is decided by matching the lead source against the configured
-       * mapping. A code with a slash in it matches nothing and lands on NA.
+       * Lead source. Matched against the curated list when there is one and
+       * stored with its spelling, the same as college and course; checked
+       * for shape only when no list is configured.
+       *
+       * Membership rather than the character rule once a list exists: the
+       * rule is there to catch typos in free text, and an admin's own
+       * entries define what is correct — "Google Ads" is a reasonable name
+       * that the letters-digits-underscore rule would reject.
+       *
+       * Enforced here and not only in the browser, because a direct POST
+       * skips the browser — and because an unrecognised source silently
+       * costs the lead its Data Calling Type, which is decided by matching
+       * the source against the configured mapping.
        */
-      const leadCodeMsg = leadCodeError(lead.campaign);
-      if (leadCodeMsg) errs.push(leadCodeMsg);
+      let resolvedLeadSource: string | undefined;
+      const rawLeadSource = lead.campaign?.trim() ?? '';
+      if (rawLeadSource) {
+        if (leadSourceNameMap.size > 0) {
+          resolvedLeadSource = leadSourceNameMap.get(rawLeadSource.toLowerCase());
+          if (!resolvedLeadSource) {
+            errs.push(`lead source "${rawLeadSource}" is not in Manage Dropdowns → Lead Sources`);
+          }
+        } else {
+          const leadCodeMsg = leadCodeError(rawLeadSource);
+          if (leadCodeMsg) errs.push(leadCodeMsg);
+          resolvedLeadSource = rawLeadSource;
+        }
+      }
 
       // The upload template is Name, Email, Phone, City, State, Course,
       // College and Lead Source — nothing else is read from the file. Zone and
@@ -165,7 +185,7 @@ export async function POST(req: NextRequest) {
         // something that identifies the row to whoever has to fix the file.
         invalidLeads.push({ row: i + 2, email: lead.email?.trim() || lead.phone, errors: errs }); // row +2: header=1, 0-indexed
       } else {
-        validLeads.push({ ...lead, _resolvedCollege: resolvedCollege, _resolvedCourse: resolvedCourse });
+        validLeads.push({ ...lead, _resolvedCollege: resolvedCollege, _resolvedCourse: resolvedCourse, _resolvedLeadSource: resolvedLeadSource });
       }
     });
 
@@ -185,6 +205,8 @@ export async function POST(req: NextRequest) {
         // the interest rows as '' and the two columns disagreed about how
         // "no course" is spelled.
         course: (l._resolvedCourse ?? l.course)?.trim() || null,
+        // Curated spelling, so one source never arrives under three variants.
+        campaign: (l._resolvedLeadSource ?? l.campaign)?.trim() || null,
       }));
 
       /**

@@ -90,6 +90,12 @@ export function AddLeadDialog({
     staleTime: Infinity,
     enabled: open,
   });
+  const { data: leadSourcesRaw } = useQuery<{ id: string; value: string }[]>({
+    queryKey: ['dropdown-lead-sources'],
+    queryFn: () => fetch('/api/dropdown-options?type=LEAD_CODE').then((r) => r.json()).then((d) => (Array.isArray(d) ? d : [])),
+    staleTime: Infinity,
+    enabled: open,
+  });
   const { data: coursesRaw } = useQuery<{ id: number | string; name: string }[]>({
     queryKey: ['static-courses'],
     queryFn: () => fetch('/api/courses').then((r) => r.json()).then((d) => (Array.isArray(d) ? d : [])).catch(() => []),
@@ -110,6 +116,10 @@ export function AddLeadDialog({
   const courseOptions = useMemo<SearchableSelectOption[]>(
     () => (coursesRaw ?? []).map((c) => ({ value: c.name, label: c.name })),
     [coursesRaw],
+  );
+  const leadSourceOptions = useMemo<SearchableSelectOption[]>(
+    () => (leadSourcesRaw ?? []).map((s) => ({ value: s.value, label: s.value })),
+    [leadSourcesRaw],
   );
   const collegeOptions = useMemo<SearchableSelectOption[]>(
     () => (collegesRaw ?? []).map((c) => ({ value: c.value, label: c.value })),
@@ -228,7 +238,12 @@ export function AddLeadDialog({
             </div>
             <div className="space-y-1.5">
               <Label>Lead Source</Label>
-              <Input {...register('campaign')} placeholder="e.g. Google_Ads" />
+              <SearchableSelect
+                options={leadSourceOptions}
+                value={watch('campaign') ?? ''}
+                onChange={(v) => setValue('campaign', v, { shouldValidate: true })}
+                placeholder="— Select Lead Source —"
+              />
             </div>
           </div>
           <DialogFooter>

@@ -96,6 +96,11 @@ export default function OperationsPage() {
     queryFn: () => fetch('/api/dropdown-options?type=COLLEGE').then((r) => r.json()).then((d) => Array.isArray(d) ? d : []),
     staleTime: Infinity,
   });
+  const { data: leadSourcesRaw } = useQuery<{ id: string; value: string }[]>({
+    queryKey: ['dropdown-lead-sources'],
+    queryFn: () => fetch('/api/dropdown-options?type=LEAD_CODE').then((r) => r.json()).then((d) => (Array.isArray(d) ? d : [])),
+    staleTime: Infinity,
+  });
   const { data: citiesRaw } = useQuery({
     queryKey: ['locations-city'],
     queryFn: () => fetch('/api/locations?type=city').then((r) => r.json()).catch(() => null),
@@ -152,8 +157,11 @@ export default function OperationsPage() {
     const courseMap = new Map<string, string>();
     (coursesRaw ?? []).forEach((c) => { if (c.name) courseMap.set(c.name.toLowerCase(), c.name); });
 
-    return { cityMap, stateMap, courseMap, collegeNameMap };
-  }, [kappCollegesRaw, citiesRaw, statesRaw, coursesRaw]);
+    const leadSourceMap = new Map<string, string>();
+    (leadSourcesRaw ?? []).forEach((s) => { if (s.value) leadSourceMap.set(s.value.trim().toLowerCase(), s.value.trim()); });
+
+    return { cityMap, stateMap, courseMap, leadSourceMap, collegeNameMap };
+  }, [kappCollegesRaw, citiesRaw, statesRaw, coursesRaw, leadSourcesRaw]);
 
   const mapsLoading = !validationMaps;
 
