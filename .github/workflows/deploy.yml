@@ -21,6 +21,18 @@ jobs:
           script: |
             set -e
             cd ~/app
+            # Stop before touching anything if there is not enough room to
+            # finish. A build that runs out of disk halfway does not just
+            # fail — it leaves a truncated .next and a pm2 process that has
+            # exited, so the site serves 502 until someone SSHes in. Failing
+            # here instead leaves the running app untouched.
+            FREE_MB=$(df -Pm / | awk 'NR==2 {print $4}')
+            if [ "$FREE_MB" -lt 3000 ]; then
+              echo "Only ${FREE_MB}MB free on / — a build needs ~3GB."
+              echo "Reclaim space (npm cache clean --force, rm -rf .next, pm2 flush)"
+              echo "or grow the volume, then run this workflow again."
+              exit 1
+            fi
             git checkout -- package-lock.json 2>/dev/null || true
             git pull origin main
             # `npm install`, not `npm ci`. ci deletes node_modules and
@@ -42,5 +54,19 @@ jobs:
             # the count stays one short for good. Idempotent — a no-op once
             # every lead has history.
             npm run db:backfill-interests
+            # The webpack pack cache from the previous deploy is dead weight
+            # — a fresh build writes its own — and on this 8GB volume it is
+            # the difference between a build and an ENOSPC. Clearing it before
+            # the build, not after, is what actually buys the headroom.
+            rm -rf .next/cache
             NODE_OPTIONS='--max-old-space-size=2048' npm run build
-            pm2 restart online-crm --update-env
+            # And again afterwards: it is only read by the NEXT build, never
+            # at runtime, so leaving it occupying ~1GB until the next deploy
+            # is what lets the disk creep back to full.
+            rm -rf .next/cache
+            # `restart` alone fails with "Process or Namespace not found" when
+            # a previous deploy died mid-build and took the process with it —
+            # which leaves the box serving 502s with no way back except a
+            # manual pm2 start. Fall through to start so a dead box heals.
+            pm2 restart online-crm --update-env || pm2 start npm --name online-crm -- start
+            pm2 save
