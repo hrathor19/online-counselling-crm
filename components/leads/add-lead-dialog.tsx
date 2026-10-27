@@ -12,6 +12,7 @@ import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { useToast } from '@/components/ui/use-toast';
 import { SearchableSelect, type SearchableSelectOption } from '@/components/shared/searchable-select';
+import { isValidPhone } from '@/lib/phone';
 
 /**
  * Add Single Lead, in one place.
@@ -26,11 +27,14 @@ import { SearchableSelect, type SearchableSelectOption } from '@/components/shar
  * imported from a file are the same shape.
  */
 
+// Phone only. Email is still format-checked when something is typed, but an
+// untouched input submits '' and must read as "not given" rather than as a
+// malformed address — hence the explicit empty-string branch.
 const singleLeadSchema = z.object({
-  name:     z.string().min(1, 'Name is required'),
-  email:    z.string().email('Invalid email'),
-  phone:    z.string().min(1, 'Phone is required'),
-  college:  z.string().min(1, 'College is required'),
+  name:     z.string().optional(),
+  email:    z.string().email('Invalid email').or(z.literal('')).optional(),
+  phone:    z.string().refine((v) => isValidPhone(v), { message: 'Phone must be 10 digits starting 6, 7, 8 or 9' }),
+  college:  z.string().optional(),
   city:     z.string().optional(),
   state:    z.string().optional(),
   course:   z.string().optional(),
@@ -171,12 +175,12 @@ export function AddLeadDialog({
         <form onSubmit={handleSubmit((data) => mutation.mutate(data))} className="space-y-4">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
-              <Label>Name <span className="text-destructive">*</span></Label>
+              <Label>Name</Label>
               <Input {...register('name')} placeholder="Full name" autoFocus />
               {errors.name && <p className="text-xs text-destructive">{errors.name.message}</p>}
             </div>
             <div className="space-y-1.5">
-              <Label>Email <span className="text-destructive">*</span></Label>
+              <Label>Email</Label>
               <Input {...register('email')} type="email" placeholder="email@example.com" />
               {errors.email && <p className="text-xs text-destructive">{errors.email.message}</p>}
             </div>
@@ -213,7 +217,7 @@ export function AddLeadDialog({
               />
             </div>
             <div className="space-y-1.5">
-              <Label>College <span className="text-destructive">*</span></Label>
+              <Label>College</Label>
               <SearchableSelect
                 options={collegeOptions}
                 value={watch('college') ?? ''}

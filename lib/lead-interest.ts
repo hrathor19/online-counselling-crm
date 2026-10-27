@@ -8,10 +8,23 @@ import { Prisma, PrismaClient } from '@prisma/client';
  * API and Add Single Lead — resolves identity here so the three cannot drift
  * into disagreeing about who is already in the CRM.
  *
- * Identity is email + phone. Both are personal identifiers; the name is
- * deliberately not part of it, because a name is descriptive rather than
- * identifying — "Rahul Sharma" and "Rahul Kumar Sharma" are the same student,
- * and matching on it would recreate the duplicates this exists to prevent.
+ * Identity is the phone number, and only the phone number.
+ *
+ * It used to be email + phone. Email became optional — phone is now the one
+ * field every lead must carry — and a pair is no identity at all when half of
+ * it can be blank: every lead without an email would have failed to match
+ * anything and piled up as duplicates of itself.
+ *
+ * Phone alone is also the right answer rather than merely the available one.
+ * This is a CRM whose whole job is ringing people: two records with the same
+ * number are the same conversation, whatever address was typed alongside
+ * them. The cost is that a household sharing one number reads as one lead —
+ * rare, and visible in the interest trail when it happens.
+ *
+ * The name is deliberately not part of it, because a name is descriptive
+ * rather than identifying: "Rahul Sharma" and "Rahul Kumar Sharma" are the
+ * same student, and matching on it would recreate the duplicates this exists
+ * to prevent.
  *
  * `Lead.college` and `Lead.course` keep holding the LATEST interest, so every
  * filter, export and report that reads them carries on working unchanged. The
@@ -28,35 +41,72 @@ export function norm(v: string | null | undefined): string {
 }
 
 /** Identity key for in-memory matching, e.g. de-duplicating within one upload. */
-export function identityKey(email: string, phone: string | null | undefined): string {
-  return `${norm(email)}|${norm(phone)}`;
+export function identityKey(phone: string | null | undefined): string {
+  return norm(phone);
 }
 
 export interface MatchedLead {
   id: string;
   college: string | null;
   course: string | null;
+  name: string;
+  email: string;
+  city: string | null;
+  state: string | null;
+}
+
+/** Contact details a later sighting may be able to fill in. See fillBlanks. */
+export interface ContactDetails {
+  name?: string | null;
+  email?: string | null;
+  city?: string | null;
+  state?: string | null;
+}
+
+/**
+ * Fills in details the existing lead is missing, and only those.
+ *
+ * Since email, name, city and state became optional, a lead can arrive as a
+ * bare phone number and pick up the rest later — a bought list first, a real
+ * conversation second. Without this the second sighting is recorded as an
+ * interest and everything else it carried is thrown away.
+ *
+ * Only blanks are written. A value already on the record is never
+ * overwritten, so a later careless upload cannot clobber a name a counsellor
+ * confirmed on the phone; the newest *enquiry* still wins for college and
+ * course, which is a different question and handled by addInterest.
+ */
+function blanksToFill(existing: MatchedLead, incoming: ContactDetails): Record<string, string> {
+  const patch: Record<string, string> = {};
+  const take = (field: 'name' | 'email' | 'city' | 'state', current: string | null) => {
+    const next = (incoming[field] ?? '').trim();
+    if (next && !(current ?? '').trim()) {
+      patch[field] = field === 'email' ? next.toLowerCase() : next;
+    }
+  };
+  take('name', existing.name);
+  take('email', existing.email);
+  take('city', existing.city);
+  take('state', existing.state);
+  return patch;
 }
 
 /**
  * The existing lead for this person, or null.
  *
- * Phone is compared exactly because it is already normalised to ten digits
- * everywhere it enters the system; email is compared case-insensitively
- * because people capitalise it inconsistently.
+ * Compared exactly: a phone is already normalised to ten digits everywhere it
+ * enters the system, so there is no casing or spacing to be forgiving about.
  */
 export async function findLeadByIdentity(
   db: Db,
-  email: string,
   phone: string | null | undefined,
 ): Promise<MatchedLead | null> {
-  const e = norm(email);
   const p = (phone ?? '').trim();
-  if (!e || !p) return null;
+  if (!p) return null;
 
   return db.lead.findFirst({
-    where: { email: { equals: e, mode: 'insensitive' }, phone: p },
-    select: { id: true, college: true, course: true },
+    where: { phone: p },
+    select: { id: true, college: true, course: true, name: true, email: true, city: true, state: true },
     // Oldest wins, so repeated enquiries keep accruing onto the original
     // record rather than onto whichever copy was created most recently.
     orderBy: { createdAt: 'asc' },
@@ -136,13 +186,38 @@ export type MergeOutcome =
  *                reports it as a duplicate, exactly as before this existed
  *  - merged    → a new interest was recorded on the existing lead
  */
+/**
+ * Writes the details an existing lead is missing, by id.
+ *
+ * The same rule as the merge path, exposed for CSV upload, which resolves
+ * its matches in bulk and so never holds a MatchedLead to compare against.
+ */
+export async function fillBlanks(db: Db, leadId: string, incoming: ContactDetails): Promise<void> {
+  const current = await db.lead.findUnique({
+    where: { id: leadId },
+    select: { id: true, college: true, course: true, name: true, email: true, city: true, state: true },
+  });
+  if (!current) return;
+  const patch = blanksToFill(current, incoming);
+  if (Object.keys(patch).length > 0) {
+    await db.lead.update({ where: { id: leadId }, data: patch });
+  }
+}
+
 export async function mergeOrFlagDuplicate(
   db: Db,
-  incoming: { email: string; phone: string; college?: string | null; course?: string | null },
+  incoming: { phone: string; college?: string | null; course?: string | null } & ContactDetails,
   source: InterestSource,
 ): Promise<MergeOutcome> {
-  const match = await findLeadByIdentity(db, incoming.email, incoming.phone);
+  const match = await findLeadByIdentity(db, incoming.phone);
   if (!match) return { kind: 'no-match' };
+
+  // Worth doing even on a duplicate: the enquiry says nothing new, but the
+  // email it arrived with may still be the first one this lead has.
+  const patch = blanksToFill(match, incoming);
+  if (Object.keys(patch).length > 0) {
+    await db.lead.update({ where: { id: match.id }, data: patch });
+  }
 
   if (await hasInterest(db, match.id, incoming.college, incoming.course)) {
     return { kind: 'duplicate', leadId: match.id };

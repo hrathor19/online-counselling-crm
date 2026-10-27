@@ -4,6 +4,7 @@ import { getServerSession } from 'next-auth';
 import { z } from 'zod';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
+import { isValidPhone } from '@/lib/phone';
 import { addInterest, mergeOrFlagDuplicate } from '@/lib/lead-interest';
 import { COUNSELLOR_ROLES, resolveAssignee } from '@/lib/assignable-users';
 import { isMaskedRole } from '@/lib/permissions';
@@ -13,11 +14,21 @@ import { getLeadWhereClause } from '@/lib/lead-access';
 import { nonFeedbackQuerySchema, buildNonFeedbackFilters, buildFeedbackFilter } from '@/lib/lead-query-filters';
 import { Feature } from '@prisma/client';
 
+/**
+ * Phone is the only required field. Name, email and college are validated
+ * when supplied and skipped when blank — the same rule CSV upload applies,
+ * so a lead typed in by hand and one imported from a file are held to one
+ * standard.
+ *
+ * `.or(z.literal(''))` on the email rather than plain `.optional()`: the form
+ * submits an untouched input as '', which an `.email()` check would reject
+ * as malformed rather than read as absent.
+ */
 const singleLeadSchema = z.object({
-  name:        z.string().min(1, 'Name is required'),
-  email:       z.string().email('Invalid email'),
-  phone:       z.string().min(1, 'Phone is required'),
-  college:     z.string().min(1, 'College is required'),
+  name:        z.string().optional().nullable(),
+  email:       z.string().email('Invalid email').or(z.literal('')).optional().nullable(),
+  phone:       z.string().refine((v) => isValidPhone(v), { message: 'Phone must be 10 digits starting 6, 7, 8 or 9' }),
+  college:     z.string().optional().nullable(),
   city:        z.string().optional().nullable(),
   state:       z.string().optional().nullable(),
   course:      z.string().optional().nullable(),
@@ -47,7 +58,9 @@ export async function POST(req: NextRequest) {
 
   const d = parsed.data;
   try {
-    const email   = d.email.trim().toLowerCase();
+    // Stored as '' rather than null when absent: Lead.name and Lead.email are
+    // NOT NULL, and every screen already renders an empty string as blank.
+    const email   = (d.email ?? '').trim().toLowerCase();
     const college = d.college?.trim() || null;
 
     /**
@@ -57,7 +70,11 @@ export async function POST(req: NextRequest) {
      */
     const outcome = await mergeOrFlagDuplicate(
       prisma,
-      { email, phone: d.phone.trim(), college, course: d.course?.trim() || null },
+      {
+        phone: d.phone.trim(), college, course: d.course?.trim() || null,
+        // Anything this sighting knows that the stored lead does not.
+        name: d.name, email, city: d.city, state: d.state,
+      },
       'MANUAL',
     );
     if (outcome.kind === 'duplicate') {
@@ -114,7 +131,7 @@ export async function POST(req: NextRequest) {
         // Not @updatedAt any more (see schema.prisma) — a new lead reads as
         // its creation time until the first feedback advances it.
         updatedAt:   now,
-        name:        d.name.trim(),
+        name:        (d.name ?? '').trim(),
         email,
         phone:       d.phone.trim(),
         city:        d.city?.trim()       || null,

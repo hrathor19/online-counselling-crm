@@ -1,4 +1,5 @@
 import Papa from 'papaparse';
+import { phoneError } from './phone';
 
 // Re-exported so existing importers keep working; the implementation and the
 // permission rule that drives it live in lib/data-masking.ts.
@@ -122,35 +123,35 @@ export function validateRowDetailed(
   const errors: string[] = [];
   const normalized: LeadCSVRow = { ...row };
 
-  // ── Name ──
+  /**
+   * Phone is the only required column. Everything else is checked only when
+   * the cell has something in it, so a file that carries nothing but numbers
+   * still uploads — a list bought as bare phone numbers is a real thing, and
+   * rejecting it wholesale helped nobody.
+   */
+
+  // ── Name (optional, validate if provided) ──
   const name = row.name?.trim() ?? '';
-  if (!name) {
-    errors.push('Name is required');
-  } else if (name.length < 2) {
-    errors.push('Name must be at least 2 characters');
-  } else if (!/^[a-zA-Z\s]+$/.test(name)) {
-    errors.push('Name must contain only letters and spaces (no digits or symbols)');
+  if (name) {
+    if (name.length < 2) {
+      errors.push('Name must be at least 2 characters');
+    } else if (!/^[a-zA-Z\s]+$/.test(name)) {
+      errors.push('Name must contain only letters and spaces (no digits or symbols)');
+    }
   }
   normalized.name = name;
 
-  // ── Email ──
+  // ── Email (optional, validate if provided) ──
   const email = row.email?.trim() ?? '';
-  if (!email) {
-    errors.push('Email is required');
-  } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     errors.push(`Invalid email "${email}"`);
   }
   normalized.email = email.toLowerCase();
 
-  // ── Phone ──
+  // ── Phone (the one required column) ──
   const phone = row.phone?.trim() ?? '';
-  if (!phone) {
-    errors.push('Phone is required');
-  } else if (!/^\d{10}$/.test(phone)) {
-    errors.push('Phone must be exactly 10 digits');
-  } else if (!/^[6-9]/.test(phone)) {
-    errors.push('Phone must start with 6, 7, 8, or 9');
-  }
+  const phoneMsg = phoneError(phone);
+  if (phoneMsg) errors.push(phoneMsg);
   normalized.phone = phone;
 
   // ── City (optional, validate if provided) ──
@@ -222,7 +223,8 @@ export function validateRowDetailed(
   // ── College (required — the CSV carries the college NAME) ──
   const college = row.college?.trim() ?? '';
   if (!college) {
-    errors.push('College is required');
+    // Optional now. A lead with no college still reaches a counsellor, who
+    // can ask — which beats refusing the row and never calling them at all.
     normalized.college = '';
   } else if (maps && maps.collegeNameMap.size > 0) {
     const canonical = maps.collegeNameMap.get(college.toLowerCase());

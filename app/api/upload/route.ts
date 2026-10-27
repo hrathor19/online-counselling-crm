@@ -9,13 +9,17 @@ import { planPriorityAssignments } from '@/lib/priority-assignment';
 import { hasPermission } from '@/lib/permissions';
 import { buildDropdownValidationSets } from '@/lib/dropdown-validation';
 import { identityKey, norm } from '@/lib/lead-interest';
+import { phoneError } from '@/lib/phone';
 import { Feature } from '@prisma/client';
 
+// Phone only. Name, email and college are optional and checked further down
+// when present — see validateRowDetailed in lib/csv-parser.ts, which the
+// browser applies to the same rows before they get here.
 const leadSchema = z.object({
-  name:        z.string().min(1),
-  email:       z.string().email(),
+  name:        z.string().optional().nullable(),
+  email:       z.string().optional().nullable(),
   phone:       z.string().min(1),
-  college:     z.string().min(1),
+  college:     z.string().optional().nullable(),
   city:        z.string().optional().nullable(),
   state:       z.string().optional().nullable(),
   course:      z.string().optional().nullable(),
@@ -65,7 +69,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const incomingEmails = leads.map((l) => l.email.trim().toLowerCase());
+    const incomingEmails = leads.map((l) => (l.email ?? '').trim().toLowerCase());
 
     // ── Fetch all active dropdown options for validation ─────────────────────
     // leadCodeCallingTypeMap: lead source → Data Calling Type. A mapped value wins
@@ -101,6 +105,16 @@ export async function POST(req: NextRequest) {
         // No colleges configured yet — store the raw value as-is
         resolvedCollege = rawCollege;
       }
+
+      /**
+       * Phone. The one required column, and since it is also what leads are
+       * matched on, a malformed number would become an identity nothing can
+       * ever dedupe against. Checked here as well as in the browser because
+       * a direct POST skips the browser entirely — which is how a lead with
+       * a three-digit phone got in.
+       */
+      const phoneMsg = phoneError(lead.phone);
+      if (phoneMsg) errs.push(phoneMsg);
 
       /**
        * Course. Checked here and not only in the browser for the same reason
@@ -147,7 +161,9 @@ export async function POST(req: NextRequest) {
 
 
       if (errs.length > 0) {
-        invalidLeads.push({ row: i + 2, email: lead.email, errors: errs }); // row +2: header=1, 0-indexed
+        // Falls back to the phone: with email optional, the error list needs
+        // something that identifies the row to whoever has to fix the file.
+        invalidLeads.push({ row: i + 2, email: lead.email?.trim() || lead.phone, errors: errs }); // row +2: header=1, 0-indexed
       } else {
         validLeads.push({ ...lead, _resolvedCollege: resolvedCollege, _resolvedCourse: resolvedCourse });
       }
@@ -174,16 +190,23 @@ export async function POST(req: NextRequest) {
       /**
        * Who is already in the CRM?
        *
-       * Identity is email + phone, not email + college: a student who asked
+       * Looked up by phone, not by email or college: a student who asked
        * about one college last month and a different one today is the same
        * person. Their row is reused and the new college recorded against it,
-       * rather than a second lead appearing for them. See lib/lead-interest.ts.
+       * rather than a second lead appearing for them.
+       *
+       * Phone rather than email because email is optional now — prefiltering
+       * on it would have missed every existing lead that has none, and
+       * created a second copy of each. See lib/lead-interest.ts.
        */
       const existing = await tx.lead.findMany({
-        where: { email: { in: resolvedValidPre.map((l) => norm(l.email)) } },
-        select: { id: true, email: true, phone: true },
+        where: { phone: { in: resolvedValidPre.map((l) => (l.phone ?? '').trim()) } },
+        // name/email/city/state come back here so the blank-filling below can
+        // compare in memory. Re-reading each lead instead would be one query
+        // per row, and re-uploading a 10,000-row file matches every row.
+        select: { id: true, phone: true, name: true, email: true, city: true, state: true },
       });
-      const existingByIdentity = new Map(existing.map((l) => [identityKey(l.email, l.phone), l.id]));
+      const existingByIdentity = new Map(existing.map((l) => [identityKey(l.phone), l.id]));
 
       // Every college/course pair already on file for those leads, fetched in
       // one query rather than per row.
@@ -213,7 +236,11 @@ export async function POST(req: NextRequest) {
        *   duplicates   nothing new said, counted exactly as before
        */
       const toInsert: typeof resolvedValid = [];
-      const toMerge: { leadId: string; college: string | null; course: string | null }[] = [];
+      const toMerge: { leadId: string; college: string | null; course: string | null; row: typeof resolvedValid[number] }[] = [];
+      // Rows for a lead already in the CRM that said nothing new about
+      // college or course. They create no interest, but may still carry the
+      // first email or name this lead has — see fillBlanks below.
+      const touchedExisting: { leadId: string; row: typeof resolvedValid[number] }[] = [];
       const extraInFile: { identity: string; college: string | null; course: string | null }[] = [];
       const alreadyInDb: typeof resolvedValid = [];
       const repeatedInFile: typeof resolvedValid = [];
@@ -223,33 +250,60 @@ export async function POST(req: NextRequest) {
       // doing this was a real incident: one upload created 370 rows for 88
       // people, and five agents separately phoned the same student.
       const seenInFile = new Map<string, Set<string>>();
+      // The row that will actually be inserted for each identity, so later
+      // rows for the same person can complete it before it is written. A
+      // file often lists one number twice — bare the first time, with a name
+      // and email the second — and the lead should end up with both.
+      const insertRowByIdentity = new Map<string, typeof resolvedValid[number]>();
+      const completeFromRow = (
+        target: Record<string, unknown>,
+        row: { name?: string | null; email?: string | null; city?: string | null; state?: string | null },
+      ) => {
+        for (const field of ['name', 'email', 'city', 'state'] as const) {
+          const next = (row[field] ?? '').trim();
+          if (next && !((target[field] as string | null | undefined) ?? '').trim()) {
+            target[field] = field === 'email' ? next.toLowerCase() : next;
+          }
+        }
+      };
 
       for (const lead of resolvedValid) {
-        const identity = identityKey(lead.email, lead.phone);
+        const identity = identityKey(lead.phone);
         const cc = `${norm(lead.college)}|${norm(lead.course)}`;
 
         const existingId = existingByIdentity.get(identity);
         if (existingId) {
-          if (interestKeys.has(`${existingId}|${cc}`)) { alreadyInDb.push(lead); continue; }
+          if (interestKeys.has(`${existingId}|${cc}`)) {
+            alreadyInDb.push(lead);
+            touchedExisting.push({ leadId: existingId, row: lead });
+            continue;
+          }
           // Guard against the same new college twice in one file.
           interestKeys.add(`${existingId}|${cc}`);
-          toMerge.push({ leadId: existingId, college: lead.college ?? null, course: lead.course ?? null });
+          toMerge.push({ leadId: existingId, college: lead.college ?? null, course: lead.course ?? null, row: lead });
           continue;
         }
 
         const seen = seenInFile.get(identity);
         if (!seen) {
           seenInFile.set(identity, new Set([cc]));
+          insertRowByIdentity.set(identity, lead);
           toInsert.push(lead);
           continue;
         }
+        // A repeat of someone earlier in this file. Whether or not it brings
+        // a new college, anything it knows that the first row left blank is
+        // folded into the row about to be inserted.
+        const target = insertRowByIdentity.get(identity);
+        if (target) completeFromRow(target as unknown as Record<string, unknown>, lead);
+
         if (seen.has(cc)) { repeatedInFile.push(lead); continue; }
         seen.add(cc);
         extraInFile.push({ identity, college: lead.college ?? null, course: lead.course ?? null });
       }
 
       const duplicateList = [...alreadyInDb, ...repeatedInFile];
-      const duplicateEmails = duplicateList.map((l) => l.email.trim().toLowerCase());
+      const duplicateEmails = duplicateList.map((l) => (l.email ?? '').trim().toLowerCase() || l.phone);
 
       const batch = await tx.uploadBatch.create({
         data: {
@@ -288,8 +342,8 @@ export async function POST(req: NextRequest) {
             // Not @updatedAt any more (see schema.prisma) — a new lead reads as
             // its creation time until the first feedback advances it.
             updatedAt:  new Date(),
-            name:       lead.name.trim(),
-            email:      lead.email.trim().toLowerCase(),
+            name:       (lead.name ?? '').trim(),
+            email:      (lead.email ?? '').trim().toLowerCase(),
             phone:      lead.phone.trim(),
             city:       lead.city?.trim()       || null,
             state:      lead.state?.trim()      || null,
@@ -339,13 +393,13 @@ export async function POST(req: NextRequest) {
 
       if (toInsert.length > 0) {
         const created = await tx.lead.findMany({
-          where: { email: { in: toInsert.map((l) => norm(l.email)) } },
-          select: { id: true, email: true, phone: true },
+          where: { phone: { in: toInsert.map((l) => (l.phone ?? '').trim()) } },
+          select: { id: true, phone: true },
         });
-        const idByIdentity = new Map(created.map((l) => [identityKey(l.email, l.phone), l.id]));
+        const idByIdentity = new Map(created.map((l) => [identityKey(l.phone), l.id]));
 
         for (const l of toInsert) {
-          const id = idByIdentity.get(identityKey(l.email, l.phone));
+          const id = idByIdentity.get(identityKey(l.phone));
           if (id) interestRows.push({ leadId: id, college: l.college ?? null, course: l.course ?? null, source: 'CSV', createdAt: stamp() });
         }
 
@@ -367,6 +421,41 @@ export async function POST(req: NextRequest) {
             data: { college: latest.college, course: latest.course, updatedAt: new Date() },
           });
         }
+      }
+
+      /**
+       * Details this file knows that the stored lead does not.
+       *
+       * Covers every row that resolved to an existing lead — including the
+       * ones that said nothing new about college or course, and the repeats
+       * of a row earlier in the same file. With name and email optional a
+       * lead can have been created from a bare phone number, and this upload
+       * may be the first thing carrying the rest of it.
+       *
+       * Computed against the columns already fetched above, so a re-upload
+       * that matches every row costs no extra reads, and writes only for the
+       * leads that actually gain something. A value already on the record is
+       * never overwritten.
+       */
+      const currentById = new Map(existing.map((e) => [e.id, e]));
+      const patches = new Map<string, Record<string, string>>();
+      const noteFill = (leadId: string, row: { name?: string | null; email?: string | null; city?: string | null; state?: string | null }) => {
+        const cur = currentById.get(leadId);
+        if (!cur) return;
+        const merged = { ...cur, ...(patches.get(leadId) ?? {}) } as Record<string, string | null>;
+        const patch = patches.get(leadId) ?? {};
+        for (const field of ['name', 'email', 'city', 'state'] as const) {
+          const next = (row[field] ?? '').trim();
+          if (next && !(merged[field] ?? '').trim()) {
+            patch[field] = field === 'email' ? next.toLowerCase() : next;
+          }
+        }
+        if (Object.keys(patch).length > 0) patches.set(leadId, patch);
+      };
+      for (const m of toMerge) noteFill(m.leadId, m.row);
+      for (const t of touchedExisting) noteFill(t.leadId, t.row);
+      for (const [leadId, data] of Array.from(patches.entries())) {
+        await tx.lead.update({ where: { id: leadId }, data });
       }
 
       for (const m of toMerge) {

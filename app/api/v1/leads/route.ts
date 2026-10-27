@@ -434,7 +434,7 @@ export async function POST(req: NextRequest) {
        * someone asking about a second college is one lead with two interests,
        * not two leads. See lib/lead-interest.ts.
        */
-      const identity = await findLeadByIdentity(prisma, email, d.phone);
+      const identity = await findLeadByIdentity(prisma, d.phone);
       const existing = identity
         ? await prisma.lead.findUnique({
             where: { id: identity.id },
@@ -583,7 +583,7 @@ export async function POST(req: NextRequest) {
         select: { id: true, email: true, phone: true, leadStage: true, name: true, assignedToId: true },
       });
       const existingByKey = new Map<string, { id: string; leadStage: string | null; name: string; assignedToId: string | null }>();
-      for (const e of existing) existingByKey.set(identityKey(e.email, e.phone), { id: e.id, leadStage: e.leadStage, name: e.name, assignedToId: e.assignedToId });
+      for (const e of existing) existingByKey.set(identityKey(e.phone), { id: e.id, leadStage: e.leadStage, name: e.name, assignedToId: e.assignedToId });
 
       // Every college/course pair already on file for those leads, in one query.
       const priorInterests = existing.length
@@ -618,7 +618,7 @@ export async function POST(req: NextRequest) {
       const intraBatchStageUpdates: { index: number; sourceIndex: number; stage: string }[] = [];
 
       for (const p of pending) {
-        const key = identityKey(p.d.email, p.d.phone);
+        const key = identityKey(p.d.phone);
         const cc = `${norm(p.college)}|${norm(p.resolvedCourse)}`;
         const hit = existingByKey.get(key);
         if (hit) {
