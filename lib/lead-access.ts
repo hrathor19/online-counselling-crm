@@ -90,16 +90,29 @@ export async function canAccessLead(user: SessionUser, leadId: string): Promise<
   return lead !== null;
 }
 
-/** Validate a lead row before approval — returns null if valid, error string if invalid */
+/**
+ * Whether a lead can be approved. Null means yes.
+ *
+ * The phone, and nothing else. This used to also require a name, a
+ * well-formed email and a course, which made Approve All silently skip rows
+ * that upload had just accepted — the batch in the screenshot reported
+ * "Approved 0 leads, 1 skipped" for a lead whose only sin was having no name.
+ * Uploads are phone-only now, so holding approval to a stricter standard than
+ * ingestion just strands leads in PENDING with no way to clear them: the
+ * single-lead approve route never applied these rules, so the same lead could
+ * be approved one at a time but not in bulk.
+ *
+ * The phone rule here is deliberately the laxer one — ten digits, no leading
+ * 6-9 requirement — rather than lib/phone.ts's. That is not drift. This is a
+ * gate on data already accepted by some ingestion path, and the external API
+ * at /api/v1/leads admits any ten digits as its published contract with
+ * partner systems. Applying the stricter rule here would leave a
+ * partner-supplied lead permanently unapprovable, which is a worse outcome
+ * than approving an unusual number.
+ */
 export function validateLeadForApproval(lead: {
-  name: string;
-  email: string;
   phone: string;
-  course?: string | null;
 }): string | null {
-  if (!lead.name?.trim()) return 'Name is empty';
-  if (!lead.email?.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(lead.email)) return 'Invalid email';
   if (!lead.phone?.trim() || !/^\d{10}$/.test(lead.phone.replace(/\D/g, ''))) return 'Phone must be 10 digits';
-  if (!lead.course?.trim()) return 'Course is empty';
   return null;
 }
