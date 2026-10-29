@@ -5,6 +5,30 @@ import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
+/**
+ * Whether the subtree is being rendered inside a DialogContent.
+ *
+ * A modal dialog traps focus and locks scrolling to its own DOM subtree, so
+ * anything that portals out of it — a dropdown panel, say — lands somewhere
+ * the dialog actively works against: the focus trap pulls focus back out of
+ * the portaled element's inputs, and react-remove-scroll swallows wheel
+ * events that did not originate inside the dialog. Such a component has to
+ * open as a modal layer of its own to take over both, and this is how it
+ * knows to. See useInDialog below.
+ */
+const InDialogContext = React.createContext(false);
+
+/**
+ * True when the caller is inside a dialog.
+ *
+ * The point of reading it from context rather than taking a prop is that no
+ * one has to remember: a dropdown dropped into a new dialog behaves correctly
+ * without the dialog's author knowing this problem exists.
+ */
+export function useInDialog() {
+  return React.useContext(InDialogContext);
+}
+
 const Dialog = DialogPrimitive.Root;
 const DialogTrigger = DialogPrimitive.Trigger;
 const DialogPortal = DialogPrimitive.Portal;
@@ -39,7 +63,7 @@ const DialogContent = React.forwardRef<
       )}
       {...props}
     >
-      {children}
+      <InDialogContext.Provider value={true}>{children}</InDialogContext.Provider>
       <DialogPrimitive.Close className="absolute right-4 top-4 flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground transition-all duration-200 hover:bg-muted hover:text-foreground hover:rotate-90 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none">
         <X className="h-4 w-4" />
         <span className="sr-only">Close</span>

@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 import * as Popover from '@radix-ui/react-popover';
 import { Check, ChevronDown, Search } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useInDialog } from '@/components/ui/dialog';
 
 export interface SearchableSelectOption {
   value: string;
@@ -30,6 +31,20 @@ const INPUT_CLASS =
  * primitive that solves all three at once: it portals, it flips when it would
  * overflow the viewport, and it registers with the same layer stack Dialog
  * uses, so focus and dismissal nest correctly.
+ *
+ * Inside a dialog it has to open as a modal layer to finish the job. Radix
+ * only pauses the dialog's focus trap for a nested layer that traps focus
+ * itself, so a non-modal panel could be opened and read but not typed into —
+ * the dialog reclaimed focus the moment the search box took it. The same
+ * applies to the wheel: the dialog's scroll lock blocks wheel events raised
+ * outside its own subtree, which is exactly where this panel is portaled to,
+ * so the option list would not scroll either.
+ *
+ * It is deliberately NOT modal elsewhere. A modal layer disables pointer
+ * events outside itself, so on a page of filters the click that moves from
+ * one dropdown to the next would be spent dismissing the first instead of
+ * opening the second — two clicks where there should be one. Hence the
+ * context rather than a constant: dialogs need it, pages are worse for it.
  */
 export function SearchableSelect({
   options, value, onChange, placeholder, disabled,
@@ -42,6 +57,7 @@ export function SearchableSelect({
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
+  const inDialog = useInDialog();
 
   const filtered = useMemo(() => {
     const q = query.toLowerCase().trim();
@@ -55,6 +71,7 @@ export function SearchableSelect({
     <Popover.Root
       open={open}
       onOpenChange={(o) => { setOpen(o); if (!o) setQuery(''); }}
+      modal={inDialog}
     >
       <Popover.Trigger asChild disabled={disabled}>
         <button
