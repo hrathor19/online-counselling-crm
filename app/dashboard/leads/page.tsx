@@ -892,10 +892,10 @@ export default function AllLeadsPage() {
               <th className="whitespace-nowrap px-3 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground min-w-[110px]">Course</th>
               <th className="whitespace-nowrap px-3 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground min-w-[160px]">College</th>
               <th className="whitespace-nowrap px-3 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground min-w-[140px]">Agent</th>
-              <th className="whitespace-nowrap px-3 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground min-w-[150px]">Assign/Reassign Date</th>
               <th className="whitespace-nowrap px-3 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground min-w-[160px]">Feedback</th>
               <th className="whitespace-nowrap px-3 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground min-w-[130px]">Profile %</th>
               <th className="whitespace-nowrap px-3 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground min-w-[130px]">Lead Source</th>
+              <th className="whitespace-nowrap px-3 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground min-w-[150px]">Assign/Reassign Date</th>
               <th className="whitespace-nowrap px-3 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground min-w-[130px]">Updated At</th>
               <th className="whitespace-nowrap px-3 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground min-w-[130px]">Uploaded At</th>
             </tr>
@@ -973,14 +973,6 @@ export default function AllLeadsPage() {
                           : <span className="text-muted-foreground">Unassigned</span>}
                       </td>
 
-                      {/* Assign/Reassign date — assignedAt is rewritten by every
-                          handover, so this is the most recent one, not the
-                          first. Dashes when the lead has never been assigned,
-                          which is also why it matches no date range. */}
-                      <td className="px-3 py-2.5 whitespace-nowrap text-xs text-muted-foreground">
-                        {lead.assignedAt ? fmtDate(lead.assignedAt) : '—'}
-                      </td>
-
                       {/* Feedback — moved here from bottom */}
                       <td className="px-3 py-2.5 whitespace-nowrap">
                         {latestFeedback
@@ -1008,6 +1000,15 @@ export default function AllLeadsPage() {
                       </td>
 
                       <td className="px-3 py-2.5 whitespace-nowrap text-xs text-muted-foreground">{lead.campaign || '—'}</td>
+
+                      {/* Assign/Reassign date — assignedAt is rewritten by every
+                          handover, so this is the most recent one, not the
+                          first. Dashes when the lead has never been assigned,
+                          which is also why it matches no date range. */}
+                      <td className="px-3 py-2.5 whitespace-nowrap text-xs text-muted-foreground">
+                        {lead.assignedAt ? fmtDate(lead.assignedAt) : '—'}
+                      </td>
+
 
                       <td className="px-3 py-2.5 whitespace-nowrap text-xs text-muted-foreground">{fmtDate(lead.updatedAt)}</td>
                       <td className="px-3 py-2.5 whitespace-nowrap text-xs text-muted-foreground">{lead.uploadedAt ? fmtDate(lead.uploadedAt) : '—'}</td>
