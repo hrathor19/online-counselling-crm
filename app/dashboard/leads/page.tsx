@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { LeadDetailDrawer } from '@/components/leads/lead-detail-drawer';
 import { PaginationBar } from '@/components/shared/pagination-bar';
 import { MultiSelectFilter, type MultiSelectOption } from '@/components/shared/multi-select-filter';
+import { AttemptsFilter, attemptsParam, type AttemptsOp } from '@/components/shared/attempts-filter';
 import { cn } from '@/lib/utils';
 import { joinCsvFilterValues, parseCsvFilterValues } from '@/lib/csv-filter-value';
 import { computeProfilingScore, profilingScoreTone } from '@/lib/lead-profiling';
@@ -74,6 +75,7 @@ const FILTER_GROUPS: { group: string; filters: FilterDef[] }[] = [
     group: 'Feedback',
     filters: [
       { key: 'lastFeedback', label: 'Last Feedback' },
+      { key: 'attempts',     label: 'Total Attempts' },
     ],
   },
   {
@@ -226,6 +228,8 @@ export default function AllLeadsPage() {
   const [updatedDateTo,   setUpdatedDateTo]   = useState('');
   const [assignedDateFrom, setAssignedDateFrom] = useState('');
   const [assignedDateTo,   setAssignedDateTo]   = useState('');
+  const [attemptsOp,    setAttemptsOp]    = useState<AttemptsOp>('eq');
+  const [attemptsValue, setAttemptsValue] = useState('');
 
   // Advanced filters — all multi-select
   const [campaigns,    setCampaigns]    = useState<string[]>([]);
@@ -266,6 +270,9 @@ export default function AllLeadsPage() {
     campaigns.length > 0, !!workType, tlIds.length > 0, agentIds.length > 0,
     !!(updatedDateFrom || updatedDateTo),
     !!(assignedDateFrom || assignedDateTo),
+    // Counted only once the box holds a usable number — an operator on its
+    // own narrows nothing, so showing it as an active filter would be a lie.
+    attemptsParam(attemptsOp, attemptsValue) !== null,
   ].filter(Boolean).length;
 
   function openFilterDialog() {
@@ -290,6 +297,7 @@ export default function AllLeadsPage() {
       case 'agent':             setAgentIds([]);             break;
       case 'updatedAt':         setUpdatedDateFrom(''); setUpdatedDateTo(''); break;
       case 'assignedAt':        setAssignedDateFrom(''); setAssignedDateTo(''); break;
+      case 'attempts':          setAttemptsValue(''); setAttemptsOp('eq'); break;
     }
   }
 
@@ -372,6 +380,8 @@ export default function AllLeadsPage() {
     if (updatedDateTo)    p.set('updatedTo', updatedDateTo);
     if (assignedDateFrom) p.set('assignedDateFrom', assignedDateFrom);
     if (assignedDateTo)   p.set('assignedDateTo', assignedDateTo);
+    const attempts = attemptsParam(attemptsOp, attemptsValue);
+    if (attempts) p.set('attempts', attempts);
     if (campaigns.length)         p.set('campaign',          joinCsvFilterValues(campaigns));
     if (tlIds.length)             p.set('tlId',              tlIds.join(','));
     if (agentIds.length)          p.set('assignedToId',      agentIds.join(','));
@@ -382,6 +392,7 @@ export default function AllLeadsPage() {
     search, cities, states, courses, colleges,
     updatedDateFrom, updatedDateTo,
     assignedDateFrom, assignedDateTo,
+    attemptsOp, attemptsValue,
     campaigns, tlIds, agentIds,
   ];
 
@@ -527,6 +538,7 @@ export default function AllLeadsPage() {
     setSearch(''); setCities([]); setStates([]); setCourses([]); setColleges([]);
     setUpdatedDateFrom(''); setUpdatedDateTo('');
     setAssignedDateFrom(''); setAssignedDateTo('');
+    setAttemptsValue(''); setAttemptsOp('eq');
     setCampaigns([]);
     setTlIds([]); setAgentIds([]);
     setActiveFilters([]);
@@ -802,6 +814,18 @@ export default function AllLeadsPage() {
               <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Last Feedback</span>
               {/* Shares selectedOptIds with the feedback capsules above, so selecting here also lights up the matching capsule and vice-versa. */}
               <MultiSelectFilter placeholder="All Feedback" options={feedbackFilterOptions} selected={selectedOptIds} onChange={(v) => applyFeedbackSelection(selectedCategoryIds, v)} loading={optsLoading} />
+            </div>
+          )}
+          {activeFilters.includes('attempts') && (
+            <div className="flex flex-col gap-1">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Total Attempts</span>
+              <AttemptsFilter
+                op={attemptsOp}
+                value={attemptsValue}
+                onOpChange={(v) => filterChange(() => setAttemptsOp(v))}
+                onValueChange={(v) => filterChange(() => setAttemptsValue(v))}
+                controlClassName="h-8 text-sm"
+              />
             </div>
           )}
           {activeFilters.includes('campaign') && (

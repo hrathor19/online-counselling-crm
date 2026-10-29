@@ -18,6 +18,7 @@ import {
 import { useToast } from '@/components/ui/use-toast';
 import { LeadDetailModal } from '@/components/leads/lead-detail-modal';
 import { PaginationBar } from '@/components/shared/pagination-bar';
+import { AttemptsFilter, attemptsParam, attemptsChipLabel, type AttemptsOp } from '@/components/shared/attempts-filter';
 import { cn } from '@/lib/utils';
 import { usePermissions } from '@/lib/usePermissions';
 import { joinCsvFilterValues } from '@/lib/csv-filter-value';
@@ -733,6 +734,7 @@ const FILTER_GROUPS: { group: string; filters: FilterDef[] }[] = [
     group: 'Other',
     filters: [
       { key: 'feedback',  label: 'Last Feedback'    },
+      { key: 'attempts',  label: 'Total Attempts'   },
       { key: 'createdAt', label: 'Date Added Range' },
       { key: 'updatedAt', label: 'Updated Date Range' },
       { key: 'assignedAt', label: 'Assign/Reassign Date' },
@@ -803,6 +805,8 @@ export default function CounsellingTLPage() {
   const [updatedTo,         setUpdatedTo]         = useState('');
   const [assignedFrom,      setAssignedFrom]      = useState('');
   const [assignedTo,        setAssignedTo]        = useState('');
+  const [attemptsOp,        setAttemptsOp]        = useState<AttemptsOp>('eq');
+  const [attemptsValue,     setAttemptsValue]     = useState('');
   const [agentFilters,      setAgentFilters]      = useState<string[]>([]);
   const [filterDialogOpen,  setFilterDialogOpen]  = useState(false);
   const [dialogFilters,     setDialogFilters]     = useState<string[]>([]);
@@ -837,7 +841,7 @@ export default function CounsellingTLPage() {
     setSelectedIds([]);
     setAllFilteredSelected(false);
     lastClickedIdxRef.current = -1;
-  }, [search, assignmentFilter, cityFilters, stateFilters, campaignFilters, courseFilters, collegeFilters, agentFilters, feedbackFilter, dateFrom, dateTo, updatedFrom, updatedTo, assignedFrom, assignedTo, limit]);
+  }, [search, assignmentFilter, cityFilters, stateFilters, campaignFilters, courseFilters, collegeFilters, agentFilters, feedbackFilter, dateFrom, dateTo, updatedFrom, updatedTo, assignedFrom, assignedTo, attemptsOp, attemptsValue, limit]);
 
   // ── Data queries ──────────────────────────────────────────────────────────────
 
@@ -848,7 +852,7 @@ export default function CounsellingTLPage() {
   });
 
   const { data, isLoading, isFetching, refetch } = useQuery({
-    queryKey: ['tl-leads', { search, assignmentFilter, cityFilters, stateFilters, campaignFilters, courseFilters, collegeFilters, agentFilters, feedbackFilter, dateFrom, dateTo, updatedFrom, updatedTo, assignedFrom, assignedTo, page, limit }],
+    queryKey: ['tl-leads', { search, assignmentFilter, cityFilters, stateFilters, campaignFilters, courseFilters, collegeFilters, agentFilters, feedbackFilter, dateFrom, dateTo, updatedFrom, updatedTo, assignedFrom, assignedTo, attemptsOp, attemptsValue, page, limit }],
     queryFn: () => {
       const p = new URLSearchParams({ page: String(page), limit: String(limit), status: 'APPROVED' });
       if (search) p.set('search', search);
@@ -874,6 +878,8 @@ export default function CounsellingTLPage() {
       if (updatedTo)   p.set('updatedTo',   updatedTo);
       if (assignedFrom) p.set('assignedDateFrom', assignedFrom);
       if (assignedTo)   p.set('assignedDateTo',   assignedTo);
+      const attempts = attemptsParam(attemptsOp, attemptsValue);
+      if (attempts) p.set('attempts', attempts);
       return fetch(`/api/leads?${p}`).then((r) => r.json());
     },
     enabled: !!session?.user?.id,
@@ -962,6 +968,9 @@ export default function CounsellingTLPage() {
     if (updatedTo)   chips.push({ key: 'uto',   label: `Updated To: ${updatedTo}`,     onRemove: () => setUpdatedTo('') });
     if (assignedFrom) chips.push({ key: 'afrom', label: `Assigned From: ${assignedFrom}`, onRemove: () => setAssignedFrom('') });
     if (assignedTo)   chips.push({ key: 'ato',   label: `Assigned To: ${assignedTo}`,     onRemove: () => setAssignedTo('') });
+    if (attemptsParam(attemptsOp, attemptsValue)) {
+      chips.push({ key: 'attempts', label: attemptsChipLabel(attemptsOp, attemptsValue), onRemove: () => setAttemptsValue('') });
+    }
     agentFilters.forEach((id) => {
       const agent = agents.find((a) => a.id === id);
       if (agent) chips.push({
@@ -971,7 +980,7 @@ export default function CounsellingTLPage() {
       });
     });
     return chips;
-  }, [assignmentFilter, cityFilters, stateFilters, campaignFilters, courseFilters, collegeFilters, feedbackFilter, feedbackOptions, dateFrom, dateTo, updatedFrom, updatedTo, assignedFrom, assignedTo, agentFilters, agents]);
+  }, [assignmentFilter, cityFilters, stateFilters, campaignFilters, courseFilters, collegeFilters, feedbackFilter, feedbackOptions, dateFrom, dateTo, updatedFrom, updatedTo, assignedFrom, assignedTo, attemptsOp, attemptsValue, agentFilters, agents]);
 
   function clearAllFilters() {
     setAssignmentFilter('all');
@@ -987,6 +996,8 @@ export default function CounsellingTLPage() {
     setUpdatedTo('');
     setAssignedFrom('');
     setAssignedTo('');
+    setAttemptsValue('');
+    setAttemptsOp('eq');
     setAgentFilters([]);
     setSelectedFilters([]);
     setDialogFilters([]);
@@ -1058,6 +1069,8 @@ export default function CounsellingTLPage() {
     if (updatedTo)   p.set('updatedTo',   updatedTo);
     if (assignedFrom) p.set('assignedDateFrom', assignedFrom);
     if (assignedTo)   p.set('assignedDateTo',   assignedTo);
+    const attemptsSel = attemptsParam(attemptsOp, attemptsValue);
+    if (attemptsSel) p.set('attempts', attemptsSel);
     return p;
   }
 
@@ -1294,6 +1307,18 @@ export default function CounsellingTLPage() {
                 <div className="flex flex-col gap-1">
                   <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Last Feedback</span>
                   <FeedbackMultiSelect options={feedbackOptions} selected={feedbackFilter} onChange={setFeedbackFilter} />
+                </div>
+              )}
+              {selectedFilters.includes('attempts') && (
+                <div className="flex flex-col gap-1">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Total Attempts</span>
+                  <AttemptsFilter
+                    op={attemptsOp}
+                    value={attemptsValue}
+                    onOpChange={setAttemptsOp}
+                    onValueChange={setAttemptsValue}
+                    controlClassName="h-8 text-xs"
+                  />
                 </div>
               )}
               {selectedFilters.includes('createdAt') && (

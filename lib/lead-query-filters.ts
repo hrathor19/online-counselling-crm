@@ -46,6 +46,19 @@ export const nonFeedbackQuerySchema = z.object({
   // `assignedToId`, which selects agents, not days.
   assignedDateFrom: z.string().optional(),
   assignedDateTo:   z.string().optional(),
+  /**
+   * How many times the lead has been attempted, as "<op>:<count>" —
+   * "eq:3", "gt:0", "lt:5".
+   *
+   * One parameter rather than an operator and a number side by side, and
+   * validated here rather than ignored when malformed, both for the same
+   * reason: hasAnyFilter below counts any present value as "this query is
+   * scoped", and bulk-delete-by-filter refuses to run unscoped. A half-given
+   * pair, or a value this builder quietly skipped, would satisfy that guard
+   * while narrowing nothing — which for a delete means every lead. A single
+   * field that either parses or 400s cannot get into that state.
+   */
+  attempts: z.string().regex(/^(eq|gt|lt):\d{1,6}$/).optional(),
   primaryAppConfirm:       z.string().optional(),
   primaryAdmConfirm:       z.string().optional(),
   leadConfirmation:        z.string().optional(),
@@ -201,6 +214,45 @@ export async function buildNonFeedbackFilters(
   // assignment date, so it belongs in no range rather than in every one.
   if (q.assignedDateFrom) filters.push({ assignedAt: { gte: istStartOfDay(q.assignedDateFrom) } });
   if (q.assignedDateTo) filters.push({ assignedAt: { lte: istEndOfDay(q.assignedDateTo) } });
+
+  /**
+   * Total attempts — one feedback is one attempt, so this counts the lead's
+   * feedback rows.
+   *
+   * Prisma cannot compare a relation's count in a `where`, so these go
+   * through followUpNumber instead, which is assigned as `currentCount + 1`
+   * when feedback is logged and is therefore 1..N with no gaps: the highest
+   * follow-up number IS the number of attempts. The only thing that removes
+   * feedback is reassigning a lead "as fresh", which deletes all of it at
+   * once and restarts numbering at 1, so it cannot leave a hole either.
+   *
+   *   = n   there is an nth attempt and no (n+1)th
+   *   > n   there is an (n+1)th
+   *   < n   there is no nth
+   *
+   * Zero is a real answer to all three — "= 0" is every lead nobody has
+   * called yet — so it is handled rather than treated as "no filter".
+   */
+  if (q.attempts) {
+    const [op, raw] = q.attempts.split(':');
+    const n = Number(raw);
+    if (op === 'gt') {
+      filters.push({ feedbacks: { some: { followUpNumber: { gt: n } } } });
+    } else if (op === 'lt') {
+      // Fewer than zero attempts is not a thing; match nothing rather than
+      // silently dropping the clause and showing every lead instead.
+      filters.push(n <= 0 ? { id: { in: [] } } : { feedbacks: { none: { followUpNumber: { gte: n } } } });
+    } else {
+      filters.push(
+        n === 0
+          ? { feedbacks: { none: {} } }
+          : { AND: [
+              { feedbacks: { some: { followUpNumber: n } } },
+              { feedbacks: { none: { followUpNumber: { gt: n } } } },
+            ] },
+      );
+    }
+  }
   if (q.primaryAppConfirm) {
     const vals = splitCsv(q.primaryAppConfirm);
     if (vals.length > 0) filters.push({ primaryApplicationConfirm: { in: vals } });
