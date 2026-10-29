@@ -4,7 +4,6 @@ import { z } from 'zod';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { callingTypeForIngest } from '@/lib/lead-code';
-import { leadCodeError } from '@/lib/csv-parser';
 import { planPriorityAssignments } from '@/lib/priority-assignment';
 import { hasPermission } from '@/lib/permissions';
 import { buildDropdownValidationSets } from '@/lib/dropdown-validation';
@@ -12,9 +11,9 @@ import { identityKey, norm } from '@/lib/lead-interest';
 import { phoneError } from '@/lib/phone';
 import { Feature } from '@prisma/client';
 
-// Phone only. Name, email and college are optional and checked further down
-// when present — see validateRowDetailed in lib/csv-parser.ts, which the
-// browser applies to the same rows before they get here.
+// Phone only. Every other column is accepted as written — see
+// validateRowDetailed in lib/csv-parser.ts, which the browser applies to the
+// same rows before they get here, and the note on the phone check below.
 const leadSchema = z.object({
   name:        z.string().optional().nullable(),
   email:       z.string().optional().nullable(),
@@ -88,97 +87,50 @@ export async function POST(req: NextRequest) {
     leads.forEach((lead, i) => {
       const errs: string[] = [];
 
-      // College: the CSV carries the college NAME. Matched case- and
-      // whitespace-insensitively against the curated list, and stored with the
-      // list's spelling so one college never arrives under three variants.
-      let resolvedCollege: string | undefined;
-      const rawCollege = lead.college?.trim() ?? '';
-
-      if (collegeNameMap.size > 0) {
-        if (rawCollege) {
-          resolvedCollege = collegeNameMap.get(rawCollege.toLowerCase());
-          if (!resolvedCollege) {
-            errs.push(`college "${rawCollege}" is not in the college list`);
-          }
-        }
-      } else if (rawCollege) {
-        // No colleges configured yet — store the raw value as-is
-        resolvedCollege = rawCollege;
-      }
-
       /**
-       * Phone. The one required column, and since it is also what leads are
-       * matched on, a malformed number would become an identity nothing can
-       * ever dedupe against. Checked here as well as in the browser because
-       * a direct POST skips the browser entirely — which is how a lead with
-       * a three-digit phone got in.
+       * Phone, and nothing else.
+       *
+       * This route used to reject a row whose college, course or lead source
+       * was not in the curated list. It no longer does: an unrecognised value
+       * is stored as written. The lists are for keeping the spelling of the
+       * values we DO recognise consistent, not for deciding which leads are
+       * allowed to exist, and uploads here are bought lists where most of the
+       * columns are approximate at best.
+       *
+       * Phone stays mandatory, and stays checked on the server rather than
+       * only in the browser, for two reasons that have nothing to do with
+       * data tidiness. It is the number a counsellor dials, and since email
+       * became optional it is the identity leads are matched on — so a
+       * malformed number is both an uncallable lead and an identity that can
+       * never dedupe. A direct POST skips the browser entirely, which is how
+       * a lead with a three-digit phone got in before.
        */
       const phoneMsg = phoneError(lead.phone);
       if (phoneMsg) errs.push(phoneMsg);
 
       /**
-       * Course. Checked here and not only in the browser for the same reason
-       * as the lead code below: a direct POST to this route skips the
-       * browser entirely. Matched case- and whitespace-insensitively against
-       * the curated list and stored with its spelling, so "  online mba  "
-       * and "ONLINE MBA" both land as the one configured "Online MBA"
-       * instead of fragmenting the column into three values nothing can
-       * group by.
+       * Canonicalisation, not validation. A value that matches the curated
+       * list is stored with that list's spelling so one college cannot arrive
+       * under three capitalisations; a value that matches nothing is kept
+       * verbatim, via the `?? lead.<field>` fallbacks where these are read.
        *
-       * With no courses configured the raw value is kept rather than every
-       * row being rejected — the same "no rule defined yet" stance the
-       * college check takes, so an upload is not blocked by a list the admin
-       * has not filled in yet.
+       * Matching the college still matters beyond spelling: its Zone and Deal
+       * Type are read from the matched college's own configuration further
+       * down, and an unmatched name simply carries none.
        */
-      let resolvedCourse: string | undefined;
-      const rawCourse = lead.course?.trim() ?? '';
-      if (rawCourse) {
-        if (courseNameMap.size > 0) {
-          resolvedCourse = courseNameMap.get(rawCourse.toLowerCase());
-          if (!resolvedCourse) {
-            errs.push(`course "${rawCourse}" is not in Manage Dropdowns → Courses`);
-          }
-        } else {
-          resolvedCourse = rawCourse;
-        }
-      }
+      const resolve = (value: string | null | undefined, map: Map<string, string>) => {
+        const v = value?.trim() ?? '';
+        if (!v) return undefined;
+        return map.get(v.toLowerCase()) ?? v;
+      };
 
-      /**
-       * Lead source. Matched against the curated list when there is one and
-       * stored with its spelling, the same as college and course; checked
-       * for shape only when no list is configured.
-       *
-       * Membership rather than the character rule once a list exists: the
-       * rule is there to catch typos in free text, and an admin's own
-       * entries define what is correct — "Google Ads" is a reasonable name
-       * that the letters-digits-underscore rule would reject.
-       *
-       * Enforced here and not only in the browser, because a direct POST
-       * skips the browser — and because an unrecognised source silently
-       * costs the lead its Data Calling Type, which is decided by matching
-       * the source against the configured mapping.
-       */
-      let resolvedLeadSource: string | undefined;
-      const rawLeadSource = lead.campaign?.trim() ?? '';
-      if (rawLeadSource) {
-        if (leadSourceNameMap.size > 0) {
-          resolvedLeadSource = leadSourceNameMap.get(rawLeadSource.toLowerCase());
-          if (!resolvedLeadSource) {
-            errs.push(`lead source "${rawLeadSource}" is not in Manage Dropdowns → Lead Sources`);
-          }
-        } else {
-          const leadCodeMsg = leadCodeError(rawLeadSource);
-          if (leadCodeMsg) errs.push(leadCodeMsg);
-          resolvedLeadSource = rawLeadSource;
-        }
-      }
+      const resolvedCollege    = resolve(lead.college,  collegeNameMap);
+      const resolvedCourse     = resolve(lead.course,   courseNameMap);
+      const resolvedLeadSource = resolve(lead.campaign, leadSourceNameMap);
 
       // The upload template is Name, Email, Phone, City, State, Course,
-      // College and Lead Source — nothing else is read from the file. Zone and
-      // Deal Type come from the college's own configuration, and Data Calling
-      // Type from the lead-source mapping, so none of them is validated here.
-      // A file still carrying older columns uploads fine; they are ignored.
-
+      // College and Lead Source — nothing else is read from the file. A file
+      // still carrying older columns uploads fine; they are ignored.
 
       if (errs.length > 0) {
         // Falls back to the phone: with email optional, the error list needs
