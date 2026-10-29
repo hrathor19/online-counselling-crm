@@ -22,8 +22,13 @@ const ROLE_ROUTES: Record<string, Role[]> = {
   // pages are "my leads" and "my follow-ups", and both already scope to the
   // signed-in user rather than to a role, so a TL sees their own work and
   // nobody else's. See lib/assignable-users.ts.
-  '/dashboard/counselling-agent': ['SUPER_ADMIN', 'COUNSELLING_TL', 'COUNSELLING_AGENT'],
   '/dashboard/counselling-agent/due-today': ['SUPER_ADMIN', 'COUNSELLING_TL', 'COUNSELLING_AGENT'],
+  // Spelled out because the parent '/dashboard/counselling-agent' entry is
+  // gone with the My Leads page it guarded. Matching here is longest-prefix,
+  // so this path used to be covered by that parent; with no entry at all it
+  // would match nothing, and a path that matches nothing is open to every
+  // signed-in role. These are the roles it inherited.
+  '/dashboard/counselling-agent/team': ['SUPER_ADMIN', 'COUNSELLING_TL', 'COUNSELLING_AGENT'],
   '/dashboard/counselling-agent/scheduled-calls': ['SUPER_ADMIN', 'REPORTS', 'OPERATIONS', 'COUNSELLING_TL', 'COUNSELLING_AGENT'],
   // More specific than the blanket '/dashboard/super-admin' rule above —
   // REPORTS can reach this one page if granted APPROVE_RECEIPTS via the

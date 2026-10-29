@@ -100,7 +100,6 @@ export default function NotificationLeadsPage() {
       if (isCelebrationFeedback(label)) triggerCelebration();
       toast({ title: 'Feedback submitted!' });
       qc.invalidateQueries({ queryKey: ['notification-leads', id] });
-      qc.invalidateQueries({ queryKey: ['my-leads'] });
       setFeedbackLead(null);
       reset();
     },

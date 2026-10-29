@@ -87,7 +87,6 @@ function FeedbackForm({
       const label = feedbackOptions.find((o) => o.id === variables.feedbackOptionId)?.label ?? '';
       if (isCelebrationFeedback(label)) triggerCelebration();
       toast({ title: 'Feedback submitted!' });
-      qc.invalidateQueries({ queryKey: ['my-leads'] });
       onSuccess();
     },
     onError: (err: Error) => {

@@ -979,7 +979,6 @@ export function LeadDetailDrawer({ leadId, onClose, canSubmitFeedback = false }:
 
   const handleFeedbackSubmitted = () => {
     qc.invalidateQueries({ queryKey: ['lead-detail', leadId] });
-    qc.invalidateQueries({ queryKey: ['my-leads'] });
     qc.invalidateQueries({ queryKey: ['all-leads'] });
     qc.invalidateQueries({ queryKey: ['feedback-category-counts'] });
   };

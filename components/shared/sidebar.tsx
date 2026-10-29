@@ -77,19 +77,6 @@ const NAV: NavEntry[] = [
     features: ['VIEW_LEADS', 'VIEW_REPORTS'],
   },
   {
-    // The counsellor's own queue. A Team Lead can take leads themselves, and
-    // All Leads shows them their whole team — so "the ones I have to call
-    // today" needed somewhere of its own. The page existed but nothing linked
-    // to it, so agents were working out of All Leads too.
-    type: 'leaf',
-    href: '/dashboard/counselling-agent',
-    label: 'My Leads',
-    icon: UserCheck,
-    roles: ['COUNSELLING_TL', 'COUNSELLING_AGENT'],
-    features: ['VIEW_LEADS'],
-    exact: true,
-  },
-  {
     type: 'leaf',
     href: '/dashboard/counselling-agent/scheduled-calls',
     label: 'Scheduled/Missed Calls',

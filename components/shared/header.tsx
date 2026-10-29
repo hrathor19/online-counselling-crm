@@ -31,7 +31,6 @@ const PAGE_TITLES: Record<string, string> = {
   '/dashboard/leads': 'All Leads',
   '/dashboard/counselling-tl': 'Assign Leads',
   '/dashboard/counselling-tl/team': 'My Team',
-  '/dashboard/counselling-agent': 'My Assigned Leads',
   '/dashboard/counselling-agent/due-today': 'Follow-ups Due Today',
   '/dashboard/counselling-agent/scheduled-calls': 'Scheduled/Missed Calls',
   '/dashboard/super-admin/announcements': 'Announcements',
