@@ -41,6 +41,11 @@ export const nonFeedbackQuerySchema = z.object({
   dateTo:      z.string().optional(),
   updatedFrom: z.string().optional(),
   updatedTo:   z.string().optional(),
+  // When the lead was last handed to somebody. Named for the date rather
+  // than for `assignedAt` so it cannot be misread as a sibling of
+  // `assignedToId`, which selects agents, not days.
+  assignedDateFrom: z.string().optional(),
+  assignedDateTo:   z.string().optional(),
   primaryAppConfirm:       z.string().optional(),
   primaryAdmConfirm:       z.string().optional(),
   leadConfirmation:        z.string().optional(),
@@ -186,6 +191,16 @@ export async function buildNonFeedbackFilters(
   if (q.dateTo) filters.push({ createdAt: { lte: istEndOfDay(q.dateTo) } });
   if (q.updatedFrom) filters.push({ updatedAt: { gte: istStartOfDay(q.updatedFrom) } });
   if (q.updatedTo) filters.push({ updatedAt: { lte: istEndOfDay(q.updatedTo) } });
+  // Assign/reassign date. `assignedAt` is overwritten by every assignment
+  // path — single assign, bulk assign, auto-assign, the reassignment rules,
+  // priority assignment — so it is always the LATEST handover, which is what
+  // this filter and the matching column mean.
+  //
+  // It is null on a lead nobody has ever been given, and Prisma's gte/lte do
+  // not match null. That is the behaviour we want: an unassigned lead has no
+  // assignment date, so it belongs in no range rather than in every one.
+  if (q.assignedDateFrom) filters.push({ assignedAt: { gte: istStartOfDay(q.assignedDateFrom) } });
+  if (q.assignedDateTo) filters.push({ assignedAt: { lte: istEndOfDay(q.assignedDateTo) } });
   if (q.primaryAppConfirm) {
     const vals = splitCsv(q.primaryAppConfirm);
     if (vals.length > 0) filters.push({ primaryApplicationConfirm: { in: vals } });

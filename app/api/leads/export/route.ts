@@ -128,6 +128,7 @@ export async function GET(req: NextRequest) {
         createdAt:   true,
         updatedAt:   true,
         uploadedAt:  true,
+        assignedAt:  true,
         uploadedBy:  { select: { name: true } },
         assignedTo:  { select: { name: true } },
         assignedBy:  { select: { name: true } },
@@ -224,6 +225,7 @@ export async function GET(req: NextRequest) {
       'Lead Source', 'Lead Type', 'Lead Origin', 'Zone',
       'Status', 'Uploaded By',
       'Assigned To', 'Assigned By', 'Assigned From', 'Prev Assignee 2',
+      'Assign/Reassign Date',
       'Updated At', 'Created At', 'Uploaded At',
       'Primary Application Confirm', 'Primary Admission Confirm',
       'Lead Confirmation', 'Lead Stage', 'Lead Verification', 'Data Calling Type', 'Deal Type',
@@ -270,6 +272,13 @@ export async function GET(req: NextRequest) {
         l.assignedBy?.name   ?? '',
         l.assignedFrom?.name ?? '',
         l.prevAssignee2?.name ?? '',
+        // fmtIstDateTime, not the toLocaleDateString used by the three dates
+        // below it: those read whichever timezone the server keeps, which in
+        // production is UTC and so reports the wrong day for anything after
+        // 18:30 IST. This column is new, so it starts out right rather than
+        // inheriting that. The other three are left alone here — correcting
+        // them silently would shift dates in a file people reconcile against.
+        l.assignedAt ? fmtIstDateTime(l.assignedAt) : '',
         new Date(l.updatedAt).toLocaleDateString('en-GB'),
         new Date(l.createdAt).toLocaleDateString('en-GB'),
         l.uploadedAt ? new Date(l.uploadedAt).toLocaleDateString('en-GB') : '',

@@ -35,6 +35,8 @@ interface Lead {
   leadVerification?: string | null; dataCallingType?: string | null;
   dealType?: string | null;
   uploadedAt?: string | null;
+  /** Last time the lead was handed to somebody; null if it never was. */
+  assignedAt?: string | null;
   status: string; createdAt: string; updatedAt: string;
   assignedTo?: { id: string; name: string } | null;
   feedbacks: { followUpNumber: number; feedbackOption?: { label: string } | null }[];
@@ -91,7 +93,8 @@ const FILTER_GROUPS: { group: string; filters: FilterDef[] }[] = [
   {
     group: 'Dates',
     filters: [
-      { key: 'updatedAt', label: 'Updated Date Range' },
+      { key: 'updatedAt',  label: 'Updated Date Range' },
+      { key: 'assignedAt', label: 'Assign/Reassign Date Range' },
     ],
   },
 ];
@@ -221,6 +224,8 @@ export default function AllLeadsPage() {
   const [colleges, setColleges] = useState<string[]>([]);
   const [updatedDateFrom, setUpdatedDateFrom] = useState('');
   const [updatedDateTo,   setUpdatedDateTo]   = useState('');
+  const [assignedDateFrom, setAssignedDateFrom] = useState('');
+  const [assignedDateTo,   setAssignedDateTo]   = useState('');
 
   // Advanced filters — all multi-select
   const [campaigns,    setCampaigns]    = useState<string[]>([]);
@@ -260,6 +265,7 @@ export default function AllLeadsPage() {
   const advancedCount = [
     campaigns.length > 0, !!workType, tlIds.length > 0, agentIds.length > 0,
     !!(updatedDateFrom || updatedDateTo),
+    !!(assignedDateFrom || assignedDateTo),
   ].filter(Boolean).length;
 
   function openFilterDialog() {
@@ -283,6 +289,7 @@ export default function AllLeadsPage() {
       case 'tl':                setTlIds([]);                break;
       case 'agent':             setAgentIds([]);             break;
       case 'updatedAt':         setUpdatedDateFrom(''); setUpdatedDateTo(''); break;
+      case 'assignedAt':        setAssignedDateFrom(''); setAssignedDateTo(''); break;
     }
   }
 
@@ -363,6 +370,8 @@ export default function AllLeadsPage() {
     if (colleges.length)  p.set('college', joinCsvFilterValues(colleges));
     if (updatedDateFrom)  p.set('updatedFrom', updatedDateFrom);
     if (updatedDateTo)    p.set('updatedTo', updatedDateTo);
+    if (assignedDateFrom) p.set('assignedDateFrom', assignedDateFrom);
+    if (assignedDateTo)   p.set('assignedDateTo', assignedDateTo);
     if (campaigns.length)         p.set('campaign',          joinCsvFilterValues(campaigns));
     if (tlIds.length)             p.set('tlId',              tlIds.join(','));
     if (agentIds.length)          p.set('assignedToId',      agentIds.join(','));
@@ -372,6 +381,7 @@ export default function AllLeadsPage() {
   const baseParamsDeps = [
     search, cities, states, courses, colleges,
     updatedDateFrom, updatedDateTo,
+    assignedDateFrom, assignedDateTo,
     campaigns, tlIds, agentIds,
   ];
 
@@ -516,6 +526,7 @@ export default function AllLeadsPage() {
   function clearAll() {
     setSearch(''); setCities([]); setStates([]); setCourses([]); setColleges([]);
     setUpdatedDateFrom(''); setUpdatedDateTo('');
+    setAssignedDateFrom(''); setAssignedDateTo('');
     setCampaigns([]);
     setTlIds([]); setAgentIds([]);
     setActiveFilters([]);
@@ -839,6 +850,20 @@ export default function AllLeadsPage() {
               </div>
             </>
           )}
+          {activeFilters.includes('assignedAt') && (
+            <>
+              <div className="flex flex-col gap-1">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Assigned From</span>
+                <input type="date" value={assignedDateFrom} onChange={(e) => filterChange(() => setAssignedDateFrom(e.target.value))}
+                  className="h-8 rounded-md border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-ring min-w-[140px]" />
+              </div>
+              <div className="flex flex-col gap-1">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Assigned To</span>
+                <input type="date" value={assignedDateTo} min={assignedDateFrom || undefined} onChange={(e) => filterChange(() => setAssignedDateTo(e.target.value))}
+                  className="h-8 rounded-md border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-ring min-w-[140px]" />
+              </div>
+            </>
+          )}
         </div>
       )}
 
@@ -867,6 +892,7 @@ export default function AllLeadsPage() {
               <th className="whitespace-nowrap px-3 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground min-w-[110px]">Course</th>
               <th className="whitespace-nowrap px-3 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground min-w-[160px]">College</th>
               <th className="whitespace-nowrap px-3 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground min-w-[140px]">Agent</th>
+              <th className="whitespace-nowrap px-3 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground min-w-[150px]">Assign/Reassign Date</th>
               <th className="whitespace-nowrap px-3 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground min-w-[160px]">Feedback</th>
               <th className="whitespace-nowrap px-3 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground min-w-[130px]">Profile %</th>
               <th className="whitespace-nowrap px-3 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground min-w-[130px]">Lead Source</th>
@@ -947,6 +973,14 @@ export default function AllLeadsPage() {
                           : <span className="text-muted-foreground">Unassigned</span>}
                       </td>
 
+                      {/* Assign/Reassign date — assignedAt is rewritten by every
+                          handover, so this is the most recent one, not the
+                          first. Dashes when the lead has never been assigned,
+                          which is also why it matches no date range. */}
+                      <td className="px-3 py-2.5 whitespace-nowrap text-xs text-muted-foreground">
+                        {lead.assignedAt ? fmtDate(lead.assignedAt) : '—'}
+                      </td>
+
                       {/* Feedback — moved here from bottom */}
                       <td className="px-3 py-2.5 whitespace-nowrap">
                         {latestFeedback
@@ -982,7 +1016,7 @@ export default function AllLeadsPage() {
                 })}
                 {leads.length === 0 && (
                   <tr>
-                    <td colSpan={16} className="px-3 py-16 text-center text-muted-foreground text-sm">
+                    <td colSpan={17} className="px-3 py-16 text-center text-muted-foreground text-sm">
                       No leads found matching the current filters.
                     </td>
                   </tr>
