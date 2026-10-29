@@ -1,5 +1,6 @@
 'use client';
 
+import { ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 /**
@@ -50,39 +51,55 @@ export function AttemptsFilter({
   value: string;
   onOpChange: (op: AttemptsOp) => void;
   onValueChange: (value: string) => void;
-  /** Each page supplies its own input sizing so the row stays visually even. */
+  /** Height and text size, so each page's filter row stays visually even. */
   controlClassName?: string;
 }) {
   return (
-    <div className="flex items-center gap-1.5">
-      <select
-        aria-label="Attempts comparison"
-        value={op}
-        onChange={(e) => onOpChange(e.target.value as AttemptsOp)}
-        className={cn(
-          'w-14 rounded-md border border-input bg-background px-2 text-center font-semibold text-foreground focus:outline-none focus:ring-1 focus:ring-ring',
-          controlClassName,
-        )}
-      >
-        {ATTEMPTS_OPS.map((o) => (
-          <option key={o.value} value={o.value} title={o.title}>{o.label}</option>
-        ))}
-      </select>
+    // One bordered control with the operator as a segment of it, rather than
+    // two boxes side by side. The operator and the count are one filter and
+    // mean nothing apart, and every neighbouring filter in these rows is a
+    // single box — two loose widgets read as two filters.
+    <div
+      className={cn(
+        'inline-flex items-stretch overflow-hidden rounded-md border border-input bg-background transition-colors',
+        // focus-within, not focus: the ring belongs to the whole control
+        // whichever half of it has the caret.
+        'focus-within:border-primary focus-within:ring-1 focus-within:ring-ring',
+        controlClassName,
+      )}
+    >
+      {/* Tinted like an input-group addon, so the operator reads as a prefix
+          to the number rather than as a first field of its own. */}
+      <div className="relative flex items-stretch bg-muted/50">
+        <select
+          aria-label="Attempts comparison"
+          value={op}
+          onChange={(e) => onOpChange(e.target.value as AttemptsOp)}
+          // appearance-none to drop the platform arrow, which at this width
+          // crowds the operator and looks nothing like the rest of the row.
+          className="h-full cursor-pointer appearance-none bg-transparent pl-2.5 pr-6 text-center font-semibold text-foreground focus:outline-none"
+        >
+          {ATTEMPTS_OPS.map((o) => (
+            <option key={o.value} value={o.value} title={o.title}>{o.label}</option>
+          ))}
+        </select>
+        <ChevronDown className="pointer-events-none absolute right-1.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/60" />
+      </div>
+
+      <span aria-hidden className="w-px shrink-0 bg-border" />
+
       <input
         aria-label="Number of attempts"
         // type=text with a digits-only filter rather than type=number: the
-        // spinner and the scroll-to-change behaviour are both unwanted on a
-        // filter, and a number input also lets "e", "+" and "-" through,
-        // which would be silently dropped by the server's pattern.
+        // spinner and scroll-to-change are both unwanted on a filter, and a
+        // number input also admits "e", "+" and "-", which the server's
+        // pattern would reject.
         type="text"
         inputMode="numeric"
         placeholder="Count"
         value={value}
         onChange={(e) => onValueChange(e.target.value.replace(/\D/g, '').slice(0, 6))}
-        className={cn(
-          'w-20 rounded-md border border-input bg-background px-2 text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-ring',
-          controlClassName,
-        )}
+        className="h-full w-20 bg-transparent px-2.5 text-foreground tabular-nums placeholder:text-muted-foreground/60 focus:outline-none"
       />
     </div>
   );
