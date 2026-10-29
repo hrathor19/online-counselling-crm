@@ -96,6 +96,18 @@ export function istDayKey(value: Date | string): string {
   return instantToIstWallClock(new Date(value)).slice(0, 10);
 }
 
+/**
+ * The hour of the IST clock, 0-23, for an instant.
+ *
+ * The counterpart to istDayKey for the times we need the hour rather than the
+ * day. `new Date().getHours()` reads whichever clock the host happens to keep,
+ * which on the production box is UTC — 5h30m behind the people using this —
+ * and on a server-rendered page that is a different clock from the browser's.
+ */
+export function istHour(value: Date | string = new Date()): number {
+  return Number(instantToIstWallClock(new Date(value)).slice(11, 13));
+}
+
 const DAY_KEY_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 /** Normalises either a "YYYY-MM-DD" day string or an instant to an IST day key. */

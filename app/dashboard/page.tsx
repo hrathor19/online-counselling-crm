@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
-import { istDayKey, istShiftDays } from '@/lib/ist-time';
+import { istDayKey, istShiftDays, istHour } from '@/lib/ist-time';
 import { joinCsvFilterValues } from '@/lib/csv-filter-value';
 import { Sparkline } from '@/components/shared/sparkline';
 import { Leaderboard } from '@/components/shared/leaderboard';
@@ -145,11 +145,32 @@ function formatNum(n: number = 0) {
   return n.toLocaleString('en-IN');
 }
 
-function getGreeting() {
-  const h = new Date().getHours();
+function greetingForHour(h: number) {
   if (h < 12) return 'Good morning';
   if (h < 17) return 'Good afternoon';
   return 'Good evening';
+}
+
+/**
+ * The greeting, on India's clock rather than the host's.
+ *
+ * Two things went wrong with reading `new Date().getHours()` straight into
+ * the heading. The server has its own timezone — UTC in production — so it
+ * rendered a greeting 5h30m behind the person reading it, and since this page
+ * is server-rendered before it hydrates, the browser then disagreed with the
+ * markup it was given and React threw a hydration error. istHour fixes the
+ * timezone for both.
+ *
+ * That still leaves a narrow race: a render at 11:59:59 hydrating at 12:00:01
+ * straddles the boundary and mismatches however correct each half is. So the
+ * value is also recomputed once on mount, which settles that case quietly,
+ * and the span is marked as expected-to-differ so React stops treating a
+ * clock that moved between two renders as a bug.
+ */
+function useGreeting() {
+  const [greeting, setGreeting] = useState(() => greetingForHour(istHour()));
+  useEffect(() => { setGreeting(greetingForHour(istHour())); }, []);
+  return greeting;
 }
 
 function fmtChartDate(dateStr: string) {
@@ -533,6 +554,7 @@ export default function DashboardPage() {
   const { data: session } = useSession();
   const role = session?.user?.role;
   const name = session?.user?.name?.split(' ')[0] ?? 'there';
+  const greeting = useGreeting();
 
   // ── Date range ────────────────────────────────────────────────────────────
   const [quickFilter, setQuickFilter] = useState<QuickFilter>('alltime');
@@ -716,7 +738,9 @@ export default function DashboardPage() {
       {/* ── Header ── */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold">{getGreeting()}, {name}!</h1>
+          <h1 className="text-2xl font-bold">
+            <span suppressHydrationWarning>{greeting}</span>, {name}!
+          </h1>
           <p className="text-sm text-muted-foreground mt-0.5">
             {role?.replace(/_/g, ' ')}
             {hasActiveFilters && (
