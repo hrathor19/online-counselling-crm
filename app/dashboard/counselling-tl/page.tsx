@@ -735,6 +735,7 @@ const FILTER_GROUPS: { group: string; filters: FilterDef[] }[] = [
       { key: 'feedback',  label: 'Last Feedback'    },
       { key: 'createdAt', label: 'Date Added Range' },
       { key: 'updatedAt', label: 'Updated Date Range' },
+      { key: 'assignedAt', label: 'Assign/Reassign Date' },
     ],
   },
 ];
@@ -800,6 +801,8 @@ export default function CounsellingTLPage() {
   const [dateTo,            setDateTo]            = useState('');
   const [updatedFrom,       setUpdatedFrom]       = useState('');
   const [updatedTo,         setUpdatedTo]         = useState('');
+  const [assignedFrom,      setAssignedFrom]      = useState('');
+  const [assignedTo,        setAssignedTo]        = useState('');
   const [agentFilters,      setAgentFilters]      = useState<string[]>([]);
   const [filterDialogOpen,  setFilterDialogOpen]  = useState(false);
   const [dialogFilters,     setDialogFilters]     = useState<string[]>([]);
@@ -834,7 +837,7 @@ export default function CounsellingTLPage() {
     setSelectedIds([]);
     setAllFilteredSelected(false);
     lastClickedIdxRef.current = -1;
-  }, [search, assignmentFilter, cityFilters, stateFilters, campaignFilters, courseFilters, collegeFilters, agentFilters, feedbackFilter, dateFrom, dateTo, updatedFrom, updatedTo, limit]);
+  }, [search, assignmentFilter, cityFilters, stateFilters, campaignFilters, courseFilters, collegeFilters, agentFilters, feedbackFilter, dateFrom, dateTo, updatedFrom, updatedTo, assignedFrom, assignedTo, limit]);
 
   // ── Data queries ──────────────────────────────────────────────────────────────
 
@@ -845,7 +848,7 @@ export default function CounsellingTLPage() {
   });
 
   const { data, isLoading, isFetching, refetch } = useQuery({
-    queryKey: ['tl-leads', { search, assignmentFilter, cityFilters, stateFilters, campaignFilters, courseFilters, collegeFilters, agentFilters, feedbackFilter, dateFrom, dateTo, updatedFrom, updatedTo, page, limit }],
+    queryKey: ['tl-leads', { search, assignmentFilter, cityFilters, stateFilters, campaignFilters, courseFilters, collegeFilters, agentFilters, feedbackFilter, dateFrom, dateTo, updatedFrom, updatedTo, assignedFrom, assignedTo, page, limit }],
     queryFn: () => {
       const p = new URLSearchParams({ page: String(page), limit: String(limit), status: 'APPROVED' });
       if (search) p.set('search', search);
@@ -869,6 +872,8 @@ export default function CounsellingTLPage() {
       if (dateTo)   p.set('dateTo',   dateTo);
       if (updatedFrom) p.set('updatedFrom', updatedFrom);
       if (updatedTo)   p.set('updatedTo',   updatedTo);
+      if (assignedFrom) p.set('assignedDateFrom', assignedFrom);
+      if (assignedTo)   p.set('assignedDateTo',   assignedTo);
       return fetch(`/api/leads?${p}`).then((r) => r.json());
     },
     enabled: !!session?.user?.id,
@@ -955,6 +960,8 @@ export default function CounsellingTLPage() {
     if (dateTo)   chips.push({ key: 'to',   label: `Added To: ${dateTo}`,     onRemove: () => setDateTo('') });
     if (updatedFrom) chips.push({ key: 'ufrom', label: `Updated From: ${updatedFrom}`, onRemove: () => setUpdatedFrom('') });
     if (updatedTo)   chips.push({ key: 'uto',   label: `Updated To: ${updatedTo}`,     onRemove: () => setUpdatedTo('') });
+    if (assignedFrom) chips.push({ key: 'afrom', label: `Assigned From: ${assignedFrom}`, onRemove: () => setAssignedFrom('') });
+    if (assignedTo)   chips.push({ key: 'ato',   label: `Assigned To: ${assignedTo}`,     onRemove: () => setAssignedTo('') });
     agentFilters.forEach((id) => {
       const agent = agents.find((a) => a.id === id);
       if (agent) chips.push({
@@ -964,7 +971,7 @@ export default function CounsellingTLPage() {
       });
     });
     return chips;
-  }, [assignmentFilter, cityFilters, stateFilters, campaignFilters, courseFilters, collegeFilters, feedbackFilter, feedbackOptions, dateFrom, dateTo, updatedFrom, updatedTo, agentFilters, agents]);
+  }, [assignmentFilter, cityFilters, stateFilters, campaignFilters, courseFilters, collegeFilters, feedbackFilter, feedbackOptions, dateFrom, dateTo, updatedFrom, updatedTo, assignedFrom, assignedTo, agentFilters, agents]);
 
   function clearAllFilters() {
     setAssignmentFilter('all');
@@ -978,6 +985,8 @@ export default function CounsellingTLPage() {
     setDateTo('');
     setUpdatedFrom('');
     setUpdatedTo('');
+    setAssignedFrom('');
+    setAssignedTo('');
     setAgentFilters([]);
     setSelectedFilters([]);
     setDialogFilters([]);
@@ -1047,6 +1056,8 @@ export default function CounsellingTLPage() {
     if (dateTo)   p.set('dateTo',   dateTo);
     if (updatedFrom) p.set('updatedFrom', updatedFrom);
     if (updatedTo)   p.set('updatedTo',   updatedTo);
+    if (assignedFrom) p.set('assignedDateFrom', assignedFrom);
+    if (assignedTo)   p.set('assignedDateTo',   assignedTo);
     return p;
   }
 
@@ -1306,6 +1317,18 @@ export default function CounsellingTLPage() {
                   <div className="flex flex-col gap-1">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Updated To</span>
                     <Input type="date" className="h-8 w-36 text-xs" value={updatedTo} min={updatedFrom || undefined} onChange={(e) => setUpdatedTo(e.target.value)} />
+                  </div>
+                </>
+              )}
+              {selectedFilters.includes('assignedAt') && (
+                <>
+                  <div className="flex flex-col gap-1">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Assigned From</span>
+                    <Input type="date" className="h-8 w-36 text-xs" value={assignedFrom} onChange={(e) => setAssignedFrom(e.target.value)} />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Assigned To</span>
+                    <Input type="date" className="h-8 w-36 text-xs" value={assignedTo} min={assignedFrom || undefined} onChange={(e) => setAssignedTo(e.target.value)} />
                   </div>
                 </>
               )}
@@ -1869,14 +1892,14 @@ export default function CounsellingTLPage() {
                       {allChecked ? 'Deselect all' : 'Select all'}
                     </button>
                   </div>
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     {filters.map((f) => {
                       const checked = dialogFilters.includes(f.key);
                       return (
                         <label
                           key={f.key}
                           className={cn(
-                            'flex items-center gap-2.5 rounded-md border px-3 py-2 cursor-pointer transition-colors text-sm select-none',
+                            'flex items-center gap-2.5 rounded-md border px-3 py-2 cursor-pointer transition-colors text-sm select-none min-w-0',
                             checked
                               ? 'border-primary/60 bg-primary/8 text-primary'
                               : 'border-input hover:bg-muted/40'
@@ -1884,11 +1907,11 @@ export default function CounsellingTLPage() {
                         >
                           <input
                             type="checkbox"
-                            className="rounded border-border accent-primary"
+                            className="shrink-0 rounded border-border accent-primary"
                             checked={checked}
                             onChange={() => toggleDialogFilter(f.key)}
                           />
-                          {f.label}
+                          <span className="truncate" title={f.label}>{f.label}</span>
                         </label>
                       );
                     })}
