@@ -94,7 +94,7 @@ const FILTER_GROUPS: { group: string; filters: FilterDef[] }[] = [
     group: 'Dates',
     filters: [
       { key: 'updatedAt',  label: 'Updated Date Range' },
-      { key: 'assignedAt', label: 'Assign/Reassign Date Range' },
+      { key: 'assignedAt', label: 'Assign/Reassign Date' },
     ],
   },
 ];
@@ -1087,14 +1087,14 @@ export default function AllLeadsPage() {
                       {allChecked ? 'Deselect all' : 'Select all'}
                     </button>
                   </div>
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     {visible.map((f) => {
                       const checked = dialogFilters.includes(f.key);
                       return (
                         <label
                           key={f.key}
                           className={cn(
-                            'flex items-center gap-2.5 rounded-md border px-3 py-2 cursor-pointer transition-colors text-sm select-none',
+                            'flex items-center gap-2.5 rounded-md border px-3 py-2 cursor-pointer transition-colors text-sm select-none min-w-0',
                             checked
                               ? 'border-primary/60 bg-primary/8 text-primary'
                               : 'border-input hover:bg-muted/40'
@@ -1102,11 +1102,11 @@ export default function AllLeadsPage() {
                         >
                           <input
                             type="checkbox"
-                            className="rounded border-border accent-primary"
+                            className="shrink-0 rounded border-border accent-primary"
                             checked={checked}
                             onChange={() => toggleDialogFilter(f.key)}
                           />
-                          {f.label}
+                          <span className="truncate" title={f.label}>{f.label}</span>
                         </label>
                       );
                     })}
