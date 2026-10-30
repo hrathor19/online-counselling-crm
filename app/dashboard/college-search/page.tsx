@@ -244,15 +244,23 @@ export default function CollegeSearchPage() {
                 transition={{ duration: 0.2, delay: Math.min(i, 8) * 0.03 }}
                 className="group flex flex-col overflow-hidden rounded-xl border border-border/60 bg-card text-left shadow-sm transition-all hover:border-primary/50 hover:shadow-md"
               >
-                <div className="relative bg-gradient-to-br from-primary/85 to-primary px-4 py-5 text-primary-foreground">
+                {/*
+                  Dark mode gets its own header colours rather than the
+                  primary token. In the dark palette `primary` is a light
+                  blue and `primary-foreground` the dark ink meant to sit on
+                  it, so a wall of these cards lit up the screen with bright
+                  blue panels — the opposite of what a dark theme is for.
+                  Deep slate and indigo instead, matching the detail drawer.
+                */}
+                <div className="relative bg-gradient-to-br from-primary/85 to-primary px-4 py-5 text-primary-foreground dark:bg-none dark:bg-slate-900/80 dark:text-slate-100 dark:ring-1 dark:ring-inset dark:ring-white/5">
                   {u.universityType && (
-                    <span className="mb-2 inline-block rounded-full bg-black/25 px-2 py-0.5 text-[10px] font-semibold">
+                    <span className="mb-2 inline-block rounded-full bg-black/25 px-2 py-0.5 text-[10px] font-semibold dark:bg-white/10 dark:text-slate-300 dark:ring-1 dark:ring-inset dark:ring-white/10">
                       {u.universityType}
                     </span>
                   )}
                   <p className="text-lg font-bold leading-tight">{u.name}</p>
                   {(u.city || u.state) && (
-                    <p className="mt-1 flex items-center gap-1 text-xs text-primary-foreground/85">
+                    <p className="mt-1 flex items-center gap-1 text-xs text-primary-foreground/85 dark:text-slate-400">
                       <MapPin className="h-3 w-3" />{[u.city, u.state].filter(Boolean).join(', ')}
                     </p>
                   )}
