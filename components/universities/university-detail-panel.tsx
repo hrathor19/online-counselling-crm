@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { useQuery } from '@tanstack/react-query';
 import {
   X, Mail, Phone, ExternalLink, MapPin, GraduationCap, Award, Users2,
@@ -196,26 +196,36 @@ function Faq({ item }: { item: { question: string; answers: string[] } }) {
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
         className="flex w-full items-start justify-between gap-3 px-4 py-3 text-left"
       >
         <span className="text-sm font-semibold">{item.question}</span>
-        <ChevronDown className={cn('mt-0.5 h-4 w-4 shrink-0 text-muted-foreground transition-transform', open && 'rotate-180')} />
+        <ChevronDown className={cn('mt-0.5 h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200', open && 'rotate-180')} />
       </button>
-      <AnimatePresence initial={false}>
-        {open && item.answers.length > 0 && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.18 }}
-            className="overflow-hidden"
-          >
-            <div className="space-y-1.5 px-4 pb-3 text-sm text-muted-foreground">
-              {item.answers.map((a, i) => <p key={i}>{a}</p>)}
-            </div>
-          </motion.div>
+
+      {/*
+        Opened by transitioning a grid row from 0fr to 1fr rather than by
+        animating height.
+        
+        Animating height means measuring the content, then writing a new
+        height every frame and making the browser lay the panel out again
+        each time — with twenty-odd of these in a scrolling column it is
+        felt. A grid track interpolates without anyone having to know the
+        content's height in advance, and the answer is simply clipped by the
+        child's overflow while the track opens.
+      */}
+      <div
+        className={cn(
+          'grid transition-[grid-template-rows] duration-200 ease-out motion-reduce:transition-none',
+          open ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]',
         )}
-      </AnimatePresence>
+      >
+        <div className="overflow-hidden">
+          <div className="space-y-1.5 px-4 pb-3 text-sm leading-relaxed text-muted-foreground">
+            {item.answers.map((a, i) => <p key={i}>{a}</p>)}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -236,22 +246,7 @@ export function UniversityDetailPanel({
    * same work but nobody is watching an animation while it happens.
    */
   const [settled, setSettled] = useState(false);
-  /**
-   * The frost, switched on a beat after the content mounts.
-   *
-   * Both are expensive and both used to happen on the same frame the slide
-   * ended — a thousand nodes laid out while a backdrop-filter was turned on
-   * over a 1040px panel, which cost more together than either did alone.
-   * Separating them by a frame or two splits the work across frames nobody
-   * is watching an animation in.
-   */
-  const [glass, setGlass] = useState(false);
-  useEffect(() => { setSettled(false); setGlass(false); }, [universityId]);
-  useEffect(() => {
-    if (!settled) return;
-    const t = setTimeout(() => setGlass(true), 160);
-    return () => clearTimeout(t);
-  }, [settled]);
+  useEffect(() => { setSettled(false); }, [universityId]);
 
   const { data, isLoading, isError } = useQuery<UniversityDetail>({
     queryKey: ['university', universityId],
@@ -293,7 +288,7 @@ export function UniversityDetailPanel({
         // No backdrop-blur: blurring the whole viewport is repainted every
         // frame of the slide, and on a throttled machine that alone cost
         // more than the panel it was decorating.
-        className="fixed inset-0 z-30 bg-slate-950/50"
+        className="fixed inset-0 z-30 bg-slate-950/65"
       />
       <motion.aside
         initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }}
@@ -302,14 +297,37 @@ export function UniversityDetailPanel({
         // frames of work on top of an already-late one.
         transition={{ type: 'tween', ease: [0.22, 1, 0.36, 1], duration: 0.26 }}
         onAnimationComplete={() => setSettled(true)}
-        style={{ willChange: 'transform' }}
+        /**
+         * colorScheme makes the browser's own furniture — the scrollbar
+         * above all — dark too. Without it a dark panel scrolls against a
+         * bright white bar.
+         */
+        style={{ willChange: 'transform', colorScheme: 'dark' }}
         className={cn(
+          // `dark` rather than a palette of its own: Tailwind is in class
+          // mode here, so this one word re-points every token inside the
+          // drawer — background, foreground, border, muted — at the dark
+          // values already defined in globals.css. The drawer is then dark
+          // whichever theme the rest of the app is in, without a second set
+          // of colours to keep in step with the first.
+          'dark',
+          /**
+           * text-foreground as well, and not redundantly.
+           *
+           * Switching the `dark` class redefines the colour variables, but
+           * anything that merely INHERITS its colour inherits the value its
+           * ancestor already computed — the light theme's near-black, set on
+           * body. Every heading and card title in here inherits, so without
+           * an explicit colour at the root they stayed black on a black
+           * panel and simply vanished.
+           */
+          'text-foreground',
           'fixed right-0 top-0 z-40 flex h-dvh w-full flex-col border-l shadow-2xl',
           // Wide enough for a two-column grid and a fee table without
           // wrapping every heading, and still short of the full screen so
           // the list stays visible behind it.
           'max-w-[min(1040px,94vw)]',
-          'border-white/15 dark:border-white/10',
+          'border-white/10',
           /**
            * The frost is switched on only once the panel has stopped
            * moving. backdrop-filter over an area this size is repainted
@@ -317,9 +335,14 @@ export function UniversityDetailPanel({
            * stutter before — so it slides on an opaque surface and becomes
            * glass on arrival, which is when anyone is looking at it.
            */
-          glass
-            ? 'bg-background/80 supports-[backdrop-filter]:bg-background/65 supports-[backdrop-filter]:backdrop-blur-2xl'
-            : 'bg-background',
+          /**
+           * Opaque, not frosted. A backdrop-filter over a panel this size is
+           * re-sampled whenever anything beneath it changes, and that was
+           * the remaining cost in a scroll. The glass look survives in the
+           * layered surfaces and inset highlights inside, which cost
+           * nothing to scroll past.
+           */
+          'bg-background',
         )}
         role="dialog"
         aria-label={data?.name ?? 'University details'}
@@ -338,12 +361,25 @@ export function UniversityDetailPanel({
         )}
 
         {data && (
-          <div className="flex-1 overflow-y-auto">
+          <div
+            className="flex-1 overflow-y-auto overscroll-contain"
+            // The scroll chain stops here: without this, reaching the end of
+            // the panel hands the wheel to the list behind it, which moves
+            // under the drawer while you are reading it.
+          >
             {/* ── Hero ── */}
-            <div className="relative overflow-hidden bg-gradient-to-br from-primary via-primary to-primary/75 px-5 pb-7 pt-5 text-primary-foreground sm:px-8">
+            {/*
+              Explicit colours rather than the primary token. In the dark
+              palette `primary` is a light blue and `primary-foreground` the
+              dark ink meant to sit on it, which gave the drawer a bright
+              band with near-black text across the top of an otherwise dark
+              panel. The header is part of the same surface, so it is stated
+              in the same register.
+            */}
+            <div className="relative overflow-hidden bg-gradient-to-br from-slate-900 via-slate-900 to-indigo-950 px-5 pb-7 pt-5 text-slate-50 sm:px-8">
               {/* A broad highlight across the top-left, which is what gives
                   the header its sense of a lit surface rather than a fill. */}
-              <div aria-hidden className="pointer-events-none absolute -left-24 -top-32 h-64 w-96 rounded-full bg-white/15 blur-3xl" />
+              <div aria-hidden className="pointer-events-none absolute -left-24 -top-32 h-64 w-96 rounded-full bg-indigo-500/20 blur-3xl" />
               <button
                 onClick={onClose}
                 aria-label="Close"
@@ -354,12 +390,12 @@ export function UniversityDetailPanel({
 
               <div className="mb-3 flex flex-wrap items-center gap-2">
                 {data.universityType && (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-black/25 px-2.5 py-1 text-[11px] font-semibold">
+                  <span className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2.5 py-1 text-[11px] font-semibold text-slate-200 ring-1 ring-inset ring-white/15">
                     <BadgeCheck className="h-3 w-3" />{data.universityType}
                   </span>
                 )}
                 {data.establishmentYear && (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-black/25 px-2.5 py-1 text-[11px] font-semibold">
+                  <span className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2.5 py-1 text-[11px] font-semibold text-slate-200 ring-1 ring-inset ring-white/15">
                     <CalendarDays className="h-3 w-3" />Est. {data.establishmentYear}
                   </span>
                 )}
@@ -367,12 +403,12 @@ export function UniversityDetailPanel({
 
               <h2 className="relative pr-12 text-[26px] font-bold leading-tight tracking-tight">{data.name}</h2>
               {data.address && (
-                <p className="mt-1.5 flex items-start gap-1.5 text-sm text-primary-foreground/85">
+                <p className="mt-1.5 flex items-start gap-1.5 text-sm text-slate-300">
                   <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0" />{data.address}
                 </p>
               )}
 
-              <div className="relative mt-4 flex flex-wrap gap-x-6 gap-y-2 border-t border-white/25 pt-3 text-sm">
+              <div className="relative mt-4 flex flex-wrap gap-x-6 gap-y-2 border-t border-white/10 pt-3 text-sm text-slate-300">
                 {data.email && (
                   <a href={`mailto:${data.email}`} className="inline-flex items-center gap-1.5 hover:underline">
                     <Mail className="h-3.5 w-3.5" />{data.email}
