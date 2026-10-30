@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useQuery } from '@tanstack/react-query';
 import {
@@ -64,7 +64,19 @@ function Section({
   tone?: 'light' | 'dark';
 }) {
   return (
-    <section className={cn('px-5 py-6 sm:px-7', tone === 'dark' ? 'bg-muted/40' : 'bg-background')}>
+    <section
+      className={cn('px-5 py-6 sm:px-7', tone === 'dark' ? 'bg-muted/40' : 'bg-background')}
+      /**
+       * Off-screen sections are skipped by the browser entirely — no layout,
+       * no paint — until they scroll near the viewport. These profiles are
+       * long (NMIMS lists 124 faculty, Amity 53 priced courses) and almost
+       * none of it is visible when the panel opens, so laying all of it out
+       * up front was most of the cost of opening. The intrinsic size is a
+       * guess at a section's height, there only to keep the scrollbar from
+       * jumping as real heights replace it.
+       */
+      style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 420px' }}
+    >
       <div className="mb-4 flex items-center gap-2">
         <Icon className="h-4 w-4 text-primary" />
         <h3 className="text-base font-bold tracking-tight">{title}</h3>
@@ -77,7 +89,46 @@ function Section({
   );
 }
 
+/**
+ * Renders the first few of a long list, with the rest behind a button.
+ *
+ * Not only for tidiness. NMIMS lists 124 faculty and Manipal 86, each a
+ * card of half a dozen elements, and drawing every one of them is what made
+ * opening a profile cost over a thousand DOM nodes and a visibly dropped
+ * frame. Nobody reads 124 faculty on a call either — they want the first
+ * few and the count.
+ */
+function ShowMore<T>({
+  items, initial, render, className, label,
+}: {
+  items: T[];
+  initial: number;
+  render: (item: T, index: number) => React.ReactNode;
+  className?: string;
+  label: string;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const shown = expanded ? items : items.slice(0, initial);
+  const hidden = items.length - shown.length;
+  return (
+    <>
+      <div className={className}>{shown.map(render)}</div>
+      {hidden > 0 && (
+        <button
+          type="button"
+          onClick={() => setExpanded(true)}
+          className="mt-2 text-xs font-semibold text-primary hover:underline"
+        >
+          Show all {items.length} {label}
+        </button>
+      )}
+    </>
+  );
+}
+
 function FeeTable({ rows }: { rows: UniversityDetail['programmeFees'] }) {
+  const [showAll, setShowAll] = useState(false);
+  const limit = showAll ? rows.length : 12;
   // Columns the sheet left empty for every row in this group are dropped
   // rather than printed as a column of dashes.
   const has = {
@@ -103,7 +154,7 @@ function FeeTable({ rows }: { rows: UniversityDetail['programmeFees'] }) {
           </tr>
         </thead>
         <tbody>
-          {rows.map((r) => (
+          {rows.slice(0, limit).map((r) => (
             <tr key={r.id} className="border-b border-border/40 last:border-0 hover:bg-muted/20">
               <td className="px-3 py-2 font-medium">
                 {r.programmeUrl
@@ -120,6 +171,15 @@ function FeeTable({ rows }: { rows: UniversityDetail['programmeFees'] }) {
           ))}
         </tbody>
       </table>
+      {rows.length > limit && (
+        <button
+          type="button"
+          onClick={() => setShowAll(true)}
+          className="w-full border-t border-border/40 bg-muted/20 px-3 py-2 text-xs font-semibold text-primary hover:bg-muted/40"
+        >
+          Show all {rows.length} programmes
+        </button>
+      )}
     </div>
   );
 }
@@ -161,6 +221,18 @@ export function UniversityDetailPanel({
   universityId: string;
   onClose: () => void;
 }) {
+  /**
+   * Whether the panel has finished sliding in.
+   *
+   * The hero is cheap and renders immediately; everything below it waits.
+   * Mounting a thousand nodes in the same frame as the slide is what made
+   * opening a profile stutter — a single 200ms frame, which reads as the
+   * panel sticking halfway. Doing it once the panel has arrived costs the
+   * same work but nobody is watching an animation while it happens.
+   */
+  const [settled, setSettled] = useState(false);
+  useEffect(() => { setSettled(false); }, [universityId]);
+
   const { data, isLoading, isError } = useQuery<UniversityDetail>({
     queryKey: ['university', universityId],
     queryFn: () => fetch(`/api/universities/${universityId}`).then((r) => {
@@ -197,11 +269,20 @@ export function UniversityDetailPanel({
       <motion.div
         initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
         onClick={onClose}
-        className="fixed inset-0 z-30 bg-black/40 backdrop-blur-[2px]"
+        transition={{ duration: 0.2 }}
+        // No backdrop-blur: blurring the whole viewport is repainted every
+        // frame of the slide, and on a throttled machine that alone cost
+        // more than the panel it was decorating.
+        className="fixed inset-0 z-30 bg-black/40"
       />
       <motion.aside
         initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }}
-        transition={{ type: 'spring', stiffness: 320, damping: 34 }}
+        // A fixed tween rather than a spring: a spring keeps animating for
+        // as long as it takes to settle, which on a slow frame means more
+        // frames of work on top of an already-late one.
+        transition={{ type: 'tween', ease: [0.22, 1, 0.36, 1], duration: 0.26 }}
+        onAnimationComplete={() => setSettled(true)}
+        style={{ willChange: 'transform' }}
         className="fixed right-0 top-0 z-40 flex h-dvh w-full max-w-[780px] flex-col border-l border-border bg-background shadow-2xl"
         role="dialog"
         aria-label={data?.name ?? 'University details'}
@@ -270,6 +351,11 @@ export function UniversityDetailPanel({
               </div>
             </div>
 
+            {/* Everything below the hero waits for the slide to finish —
+                see `settled`. Until then the panel is its header, which is
+                what is actually on screen during the animation anyway. */}
+            {!settled && <div className="h-40" aria-hidden />}
+            {settled && (<>
             {/* ── Accreditations ── */}
             {data.accreditations.length > 0 && (
               <Section title="Accreditations & Recognitions" icon={Award} count={data.accreditations.length}>
@@ -314,13 +400,17 @@ export function UniversityDetailPanel({
                   {Array.from(new Set(data.specializations!.map((x) => x.programme))).map((programme) => (
                     <div key={programme}>
                       <p className="mb-1.5 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">{programme}</p>
-                      <div className="flex flex-wrap gap-1.5">
-                        {data.specializations!.filter((x) => x.programme === programme).map((x, i) => (
+                      <ShowMore
+                        items={data.specializations!.filter((x) => x.programme === programme)}
+                        initial={10}
+                        label="specialisations"
+                        className="flex flex-wrap gap-1.5"
+                        render={(x, i) => (
                           <span key={i} title={x.type} className="rounded-full border border-border/60 bg-muted/40 px-2.5 py-1 text-xs font-medium">
                             {x.specialization}
                           </span>
-                        ))}
-                      </div>
+                        )}
+                      />
                     </div>
                   ))}
                 </div>
@@ -368,19 +458,27 @@ export function UniversityDetailPanel({
             {/* ── Hiring partners ── */}
             {(data.partners?.length ?? 0) > 0 && (
               <Section title="Hiring Partners" icon={Users2} count={data.partners!.length}>
-                <div className="flex flex-wrap gap-1.5">
-                  {data.partners!.map((p) => (
+                <ShowMore
+                  items={data.partners!}
+                  initial={24}
+                  label="partners"
+                  className="flex flex-wrap gap-1.5"
+                  render={(p) => (
                     <span key={p} className="rounded-full border border-border/60 bg-muted/40 px-2.5 py-1 text-xs font-medium">{p}</span>
-                  ))}
-                </div>
+                  )}
+                />
               </Section>
             )}
 
             {/* ── Faculty ── */}
             {(data.faculty?.length ?? 0) > 0 && (
               <Section title="Faculty" icon={Users2} count={data.faculty!.length} tone="dark">
-                <div className="space-y-2">
-                  {data.faculty!.map((f, i) => (
+                <ShowMore
+                  items={data.faculty!}
+                  initial={5}
+                  label="faculty"
+                  className="space-y-2"
+                  render={(f, i) => (
                     <div key={i} className="rounded-lg border border-border/60 bg-background p-3">
                       <div className="flex flex-wrap items-baseline gap-x-2">
                         <p className="text-sm font-bold">{f.name}</p>
@@ -390,8 +488,8 @@ export function UniversityDetailPanel({
                       {f.qualification && <p className="mt-1 text-xs text-muted-foreground">{f.qualification}</p>}
                       {f.description && <p className="mt-1.5 whitespace-pre-line text-xs text-muted-foreground">{f.description}</p>}
                     </div>
-                  ))}
-                </div>
+                  )}
+                />
               </Section>
             )}
 
@@ -418,6 +516,8 @@ export function UniversityDetailPanel({
                 </div>
               </Section>
             )}
+
+            </>)}
 
             <div className="h-6" />
           </div>
