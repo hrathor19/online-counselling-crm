@@ -21,6 +21,19 @@ import { cn } from '@/lib/utils';
  * the same.
  */
 
+/**
+ * The drawer's accent, the brand coral.
+ *
+ * Written as a literal at each use rather than read from a variable,
+ * because Tailwind has to see the class names at build time to emit them —
+ * `text-[#e85a42]` works, a class built from a runtime string does not.
+ * The `primary` token is deliberately not used here: it resolves to a light
+ * blue in the dark palette, and blue is the hue this panel was moved away
+ * from.
+ */
+const ACCENT = '#e85a42';
+void ACCENT;   // documentation; the literals above are what Tailwind emits.
+
 export interface UniversityDetail {
   id: string; name: string; slug: string;
   universityType?: string | null; establishmentYear?: string | null;
@@ -84,8 +97,12 @@ function Section({
       style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 420px' }}
     >
       <div className="mb-4 flex items-center gap-2">
-        <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10 ring-1 ring-inset ring-primary/15">
-          <Icon className="h-3.5 w-3.5 text-primary" />
+        {/* The drawer's accent is the brand coral, written out rather than
+            taken from the `primary` token: that token is a light blue in
+            the dark palette, which is the hue this panel deliberately does
+            not use. See ACCENT below. */}
+        <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-[#e85a42]/12 ring-1 ring-inset ring-[#e85a42]/20">
+          <Icon className="h-3.5 w-3.5 text-[#e85a42]" />
         </span>
         <h3 className="text-base font-bold tracking-tight text-zinc-100">{title}</h3>
         {count !== undefined && (
@@ -125,7 +142,7 @@ function ShowMore<T>({
         <button
           type="button"
           onClick={() => setExpanded(true)}
-          className="mt-2 text-xs font-semibold text-primary hover:underline"
+          className="mt-2 text-xs font-semibold text-[#e85a42] hover:underline"
         >
           Show all {items.length} {label}
         </button>
@@ -183,7 +200,7 @@ function FeeTable({ rows }: { rows: UniversityDetail['programmeFees'] }) {
         <button
           type="button"
           onClick={() => setShowAll(true)}
-          className="w-full border-t border-border/40 bg-muted/20 px-3 py-2 text-xs font-semibold text-primary hover:bg-muted/40"
+          className="w-full border-t border-white/10 bg-white/[0.04] px-3 py-2 text-xs font-semibold text-[#e85a42] hover:bg-white/[0.08]"
         >
           Show all {rows.length} programmes
         </button>
@@ -226,7 +243,7 @@ function ProgrammeCard({
               type="button"
               onClick={() => setOpen((v) => !v)}
               aria-expanded={open}
-              className="inline-flex items-center gap-1 rounded-full bg-primary/15 px-2 py-0.5 font-semibold text-primary ring-1 ring-inset ring-primary/25 transition-colors hover:bg-primary/25"
+              className="inline-flex items-center gap-1 rounded-full bg-[#e85a42]/15 px-2 py-0.5 font-semibold text-[#e85a42] ring-1 ring-inset ring-[#e85a42]/30 transition-colors hover:bg-[#e85a42]/25"
             >
               {count} specialisation{count === 1 ? '' : 's'}
               <ChevronDown className={cn('h-3 w-3 transition-transform duration-200', open && 'rotate-180')} />
@@ -604,9 +621,9 @@ export function UniversityDetailPanel({
                           // words.
                           <div
                             key={i}
-                            className="grid grid-cols-1 gap-x-4 gap-y-1 border-b border-border/40 px-3.5 py-2.5 last:border-0 sm:grid-cols-[minmax(0,14rem)_1fr]"
+                            className="grid grid-cols-1 gap-x-4 gap-y-1 border-b border-white/[0.07] px-3.5 py-2.5 last:border-0 sm:grid-cols-[minmax(0,14rem)_1fr]"
                           >
-                            <span className="text-sm font-bold leading-snug text-primary">{s.credit}</span>
+                            <span className="text-sm font-bold leading-snug text-[#e85a42]">{s.credit}</span>
                             <span className="text-sm leading-relaxed text-muted-foreground">{s.eligibility}</span>
                           </div>
                         ))}
@@ -626,7 +643,7 @@ export function UniversityDetailPanel({
                   label="partners"
                   className="flex flex-wrap gap-1.5"
                   render={(p) => (
-                    <span key={p} className="rounded-full border border-border/60 bg-muted/40 px-2.5 py-1 text-xs font-medium">{p}</span>
+                    <span key={p} className="rounded-full border border-white/10 bg-white/[0.06] px-2.5 py-1 text-xs font-medium">{p}</span>
                   )}
                 />
               </Section>
@@ -644,7 +661,7 @@ export function UniversityDetailPanel({
                     <div key={i} className="rounded-xl border border-white/10 bg-white/[0.04] p-3.5 shadow-sm">
                       <div className="flex flex-wrap items-baseline gap-x-2">
                         <p className="text-sm font-bold">{f.name}</p>
-                        {f.designation && <p className="text-xs text-primary">{f.designation}</p>}
+                        {f.designation && <p className="text-xs text-[#e85a42]">{f.designation}</p>}
                         {f.experience && <p className="text-xs text-muted-foreground">· {f.experience}</p>}
                       </div>
                       {f.qualification && <p className="mt-1 text-xs text-muted-foreground">{f.qualification}</p>}
@@ -671,7 +688,7 @@ export function UniversityDetailPanel({
                   {data.locationStops!.map((l, i) => (
                     <div
                       key={i}
-                      className="grid grid-cols-1 gap-x-4 gap-y-1 border-b border-border/40 px-3.5 py-2.5 last:border-0 sm:grid-cols-[minmax(0,11rem)_1fr_auto]"
+                      className="grid grid-cols-1 gap-x-4 gap-y-1 border-b border-white/[0.07] px-3.5 py-2.5 last:border-0 sm:grid-cols-[minmax(0,11rem)_1fr_auto]"
                     >
                       <span className="text-xs font-bold uppercase leading-snug tracking-wider text-muted-foreground">{l.transportType}</span>
                       <span className="text-sm leading-relaxed">{l.nearest ?? '—'}</span>
