@@ -232,7 +232,20 @@ function ProgrammeCard({
               <ChevronDown className={cn('h-3 w-3 transition-transform duration-200', open && 'rotate-180')} />
             </button>
           ) : (
-            <span className="rounded-full bg-primary/10 px-2 py-0.5 font-semibold text-primary">
+            /**
+             * Styled as plain text, not as the blue pill its clickable
+             * sibling uses.
+             *
+             * Eighteen of the thirty-two sheets carry a "Specializations
+             * Count" column and no section listing the names, so this is
+             * the common case rather than the odd one. Dressing it like a
+             * button and doing nothing when pressed reads as a broken
+             * control; the tooltip says why there is nothing to open.
+             */
+            <span
+              title="This university's sheet gives a count but does not list the specialisation names."
+              className="rounded-full bg-white/[0.06] px-2 py-0.5 font-semibold text-muted-foreground ring-1 ring-inset ring-white/10"
+            >
               {count} specialisation{count === 1 ? '' : 's'}
             </span>
           )
