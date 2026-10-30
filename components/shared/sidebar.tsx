@@ -13,7 +13,8 @@ import {
   GitBranch, CalendarClock, X, ChevronsLeft, ChevronsRight,
   GraduationCap,
   Hash,
-  Megaphone, Gauge, Receipt, KeyRound, Settings, Trash2, Webhook, Search, Target, FileBarChart, Mail, Link2, Zap, Shuffle, Clock3,} from 'lucide-react';
+  Megaphone, Gauge, Receipt, KeyRound, Settings, Trash2, Webhook, Search, Target, FileBarChart, Mail, Link2, Zap, Shuffle, Clock3, Building2,
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
@@ -159,6 +160,13 @@ const NAV: NavEntry[] = [
         href: '/dashboard/super-admin/feedback-options',
         label: 'Feedbacks',
         icon: MessageSquare,
+        roles: ['SUPER_ADMIN', 'REPORTS', 'OPERATIONS'],
+        features: ['MANAGE_DROPDOWNS'],
+      },
+      {
+        href: '/dashboard/super-admin/manage-universities',
+        label: 'Universities',
+        icon: Building2,
         roles: ['SUPER_ADMIN', 'REPORTS', 'OPERATIONS'],
         features: ['MANAGE_DROPDOWNS'],
       },

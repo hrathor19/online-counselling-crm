@@ -162,6 +162,10 @@ enum ActivityAction {
   LEAD_INTEGRATION_CREATED
   LEAD_INTEGRATION_UPDATED
   LEAD_INTEGRATION_DELETED
+  /// A university profile CSV was uploaded, or the university removed. Both
+  /// replace what counsellors quote on calls, so both are worth a trail.
+  UNIVERSITY_IMPORTED
+  UNIVERSITY_DELETED
   LEADS_EXPORTED
 }
 
@@ -307,6 +311,7 @@ model User {
 
   // Dropdown options created by this user (SA)
   createdDropdownOptions DropdownOption[] @relation("DropdownOptionCreator")
+  importedUniversities   University[]     @relation("UniversityImportedBy")
 
   // Activity log
   activityLogs ActivityLog[]
@@ -1369,4 +1374,137 @@ model EmailLog {
 
   @@index([ruleId, sentAt])
   @@index([sentAt])
+}
+
+// ─── University profiles ──────────────────────────────────────────────────────
+//
+// The universities this team actually sells, each imported from one CSV laid
+// out in numbered sections (University information, Accreditations, Programmes
+// summary, FAQs, Company Partners, UG/PG Programs, Top Faculties, Location,
+// Scholarships). See lib/university-csv.ts for the parser.
+//
+// This replaces the old College/Course Search, which proxied the LMS catalogue
+// of ~9,937 colleges live. That catalogue could answer "does this college
+// exist" but nothing a counsellor needs on a call — fees, accreditations,
+// scholarships, who hires from there. None of it could be curated either.
+//
+// Why some sections are columns and others are JSON: the filters on the
+// listing page — fees range, accreditation body, course, programme level,
+// state — have to be queried, so those live in real tables with indexes.
+// FAQs, hiring partners, faculty, location stops and scholarships are only
+// ever rendered on one detail panel, so they are JSON and cost no joins.
+model University {
+  id   String @id @default(cuid())
+  /// The display name, and the natural key an import matches on: re-uploading
+  /// a university's CSV updates it in place rather than creating a second.
+  name String @unique
+  slug String @unique
+
+  universityType    String?
+  establishmentYear String?
+  address           String?
+  city              String?
+  state             String?
+  email             String?
+  phone             String?
+  universityPageUrl String?
+  brochureUrl       String?
+  heroImageUrl      String?
+  logoUrl           String?
+
+  /// [{ question, answers: string[] }]
+  faqs          Json?
+  /// string[] — the hiring partners grid.
+  partners      Json?
+  /// [{ name, designation, qualification, experience, description }]
+  faculty       Json?
+  /// [{ transportType, nearest, distance }]
+  locationStops Json?
+  /// [{ group, credit, eligibility }] — "group" separates the scholarship
+  /// table from the discount table, which the sheet stacks under one heading.
+  scholarships  Json?
+  /// Free text a section carries above its table, e.g. the scholarship
+  /// caveat about document verification.
+  sectionNotes  Json?
+  /// Sections the parser did not recognise, kept verbatim rather than
+  /// dropped: a university whose sheet grows an eleventh section should
+  /// surface as "not imported yet", not silently lose data.
+  extraSections Json?
+
+  isActive     Boolean  @default(true)
+  sourceFile   String?
+  importedAt   DateTime @default(now())
+  importedById String?
+  importedBy   User?    @relation("UniversityImportedBy", fields: [importedById], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  accreditations UniversityAccreditation[]
+  programmes     UniversityProgramme[]
+  programmeFees  UniversityProgrammeFee[]
+
+  @@index([isActive])
+  @@index([state])
+}
+
+/// One row of "Accreditations and recognitions". Also what the listing page's
+/// "Approved by" filter matches on, hence a table rather than JSON.
+model UniversityAccreditation {
+  id           String     @id @default(cuid())
+  universityId String
+  university   University @relation(fields: [universityId], references: [id], onDelete: Cascade)
+  body         String
+  status       String?
+  sortOrder    Int        @default(0)
+
+  @@index([universityId])
+  @@index([body])
+}
+
+/// One row of "Programmes summary" — the course families a university offers,
+/// which is what the cards list and the Course and Programme Level filters
+/// match on. Distinct from UniversityProgrammeFee, which is the priced
+/// variants of these ("MBA" here; "MBA in Construction Project Management"
+/// there).
+model UniversityProgramme {
+  id              String     @id @default(cuid())
+  universityId    String
+  university      University @relation(fields: [universityId], references: [id], onDelete: Cascade)
+  code            String
+  fullName        String?
+  level           String?
+  durationMonths  Int?
+  specializations Int?
+  sortOrder       Int        @default(0)
+
+  @@index([universityId])
+  @@index([code])
+  @@index([level])
+}
+
+/// A priced programme, from the UnderGraduate and PostGraduate sections.
+///
+/// Money is stored as whole rupees rather than the sheet's "₹1,75,120"
+/// strings, so the fees-range filter can compare it and every fee renders in
+/// one format. The sheet is not internally consistent about that — one EMI
+/// cell is missing the "/month" every other row carries — and parsing to a
+/// number makes that irrelevant.
+model UniversityProgrammeFee {
+  id             String     @id @default(cuid())
+  universityId   String
+  university     University @relation(fields: [universityId], references: [id], onDelete: Cascade)
+  programmeName  String
+  /// "Undergraduate" or "Postgraduate", from which section the row came.
+  level          String
+  duration       String?
+  oneTimePayment Int?
+  annualFee      Int?
+  perSemesterFee Int?
+  emiPerMonth    Int?
+  sortOrder      Int        @default(0)
+
+  @@index([universityId])
+  @@index([level])
+  @@index([oneTimePayment])
 }
