@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useSession, signOut } from 'next-auth/react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
@@ -55,7 +55,24 @@ interface NavGroup {
   children: NavChild[];
 }
 
-type NavEntry = NavLeaf | NavGroup;
+/**
+ * A heading over the entries that follow it, up to the next one.
+ *
+ * It is a marker in the same list rather than a nesting level because the
+ * entries under it are a mix of leaves and expandable groups, and nesting
+ * those inside a section would have meant two kinds of "group" that look
+ * the same and behave differently.
+ *
+ * A heading is only drawn when at least one entry beneath it survives the
+ * role and feature filtering — an agent sees no Operations pages, and a
+ * heading over nothing is worse than no heading.
+ */
+interface NavSection {
+  type: 'section';
+  label: string;
+}
+
+type NavEntry = NavLeaf | NavGroup | NavSection;
 
 // ─── Navigation Definition ───────────────────────────────────────────────────
 
@@ -68,6 +85,7 @@ const NAV: NavEntry[] = [
     roles: ['SUPER_ADMIN', 'REPORTS', 'OPERATIONS', 'COUNSELLING_TL', 'COUNSELLING_AGENT'],
     exact: true,
   },
+  { type: 'section', label: 'Lead Management' },
   {
     type: 'leaf',
     href: '/dashboard/leads',
@@ -131,6 +149,7 @@ const NAV: NavEntry[] = [
       },
     ],
   },
+  { type: 'section', label: 'Universities & Courses' },
   {
     type: 'leaf',
     href: '/dashboard/college-search',
@@ -193,6 +212,7 @@ const NAV: NavEntry[] = [
       },
     ],
   },
+  { type: 'section', label: 'Operations' },
   {
     type: 'group',
     key: 'user-management',
@@ -346,6 +366,7 @@ const NAV: NavEntry[] = [
     exact: true,
     features: ['APPROVE_RECEIPTS'],
   },
+  { type: 'section', label: 'System' },
   {
     type: 'group',
     key: 'configurations',
@@ -441,6 +462,36 @@ export function Sidebar({ onClose, collapsed = false, onCollapse }: SidebarProps
   const { can, isLoading: permsLoading } = usePermissions();
   const featureAllowed = (features?: string[]): boolean =>
     !features || permsLoading || features.some((f) => can(f));
+
+  /**
+   * NAV with the entries this user cannot see removed, and with any section
+   * heading whose whole run was removed dropped along with it.
+   *
+   * Done in one pass up front rather than inside the render, because
+   * deciding whether to draw a heading needs to know about the entries
+   * AFTER it — which the row rendering the heading cannot see.
+   */
+  const visibleNav = useMemo(() => {
+    if (!userRole) return [] as NavEntry[];
+
+    const isVisible = (entry: NavEntry): boolean => {
+      if (entry.type === 'section') return true;
+      if (entry.type === 'leaf') {
+        return entry.roles.includes(userRole) && featureAllowed(entry.features);
+      }
+      return entry.children.some((c) => c.roles.includes(userRole) && featureAllowed(c.features));
+    };
+
+    const kept = NAV.filter(isVisible);
+    // Drop a heading immediately followed by another heading or by nothing:
+    // either way there is no entry under it.
+    return kept.filter((entry, i) => {
+      if (entry.type !== 'section') return true;
+      const next = kept[i + 1];
+      return !!next && next.type !== 'section';
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userRole, permsLoading, can]);
 
   // True when sidebar should visually show expanded state
   const isExpanded = !collapsed || hovered;
@@ -552,8 +603,32 @@ export function Sidebar({ onClose, collapsed = false, onCollapse }: SidebarProps
       {/* ── Navigation ── */}
       <nav className="flex-1 overflow-y-auto overflow-x-hidden py-3 px-2">
         <ul className="space-y-0.5">
-          {NAV.map((entry, idx) => {
+          {visibleNav.map((entry, idx) => {
             if (!userRole) return null;
+
+            // ── Section heading ──
+            if (entry.type === 'section') {
+              // Collapsed to icons, a word of text would not fit, so the
+              // heading becomes the rule that would have sat under it —
+              // the grouping survives even when the labels cannot.
+              if (!isExpanded) {
+                return (
+                  <li key={`section-${entry.label}`} aria-hidden className="px-3 py-2">
+                    <span className="block h-px bg-border/70" />
+                  </li>
+                );
+              }
+              return (
+                <li
+                  key={`section-${entry.label}`}
+                  className={cn('px-3 pb-1', idx === 0 ? 'pt-1' : 'pt-4')}
+                >
+                  <span className="text-[10px] font-bold uppercase tracking-[0.08em] text-muted-foreground/70">
+                    {entry.label}
+                  </span>
+                </li>
+              );
+            }
 
             // ── Leaf ──
             if (entry.type === 'leaf') {
