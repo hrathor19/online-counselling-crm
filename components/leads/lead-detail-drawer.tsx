@@ -131,7 +131,7 @@ function displayLeadId(id: string) {
 
 const TABS = [
   { key: 'overview',  label: 'Overview',     Icon: LayoutList    },
-  { key: 'followups', label: 'Follow-Ups',   Icon: CalendarClock },
+  { key: 'followups', label: 'Feedbacks',    Icon: CalendarClock },
   { key: 'calls',     label: 'Calls',        Icon: PhoneIncoming },
   { key: 'timeline',  label: 'Timeline',     Icon: GitBranch     },
 ] as const;
@@ -913,7 +913,7 @@ function CallsTab({ leadId }: { leadId: string }) {
       ) : (
         <div className="flex items-center gap-2 rounded-lg border border-dashed border-border/60 p-3 text-xs text-muted-foreground">
           <CalendarClock className="h-4 w-4 opacity-50 shrink-0" />
-          No upcoming scheduled call. Schedule one via Follow-Ups.
+          No upcoming scheduled call. Schedule one via Feedbacks.
         </div>
       )}
 
