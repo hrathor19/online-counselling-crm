@@ -142,10 +142,40 @@ function parseCount(text: string | undefined): number | undefined {
   return m ? Number(m[0]) : undefined;
 }
 
-/** True when a row looks like a table's column headings rather than data. */
+/**
+ * True when a row is a table's column headings rather than data.
+ *
+ * Matched on words that appear in a heading and not in a value. Exact
+ * matching was too brittle: the accreditations table is headed
+ * "Accreditation Body | Status" on one tab and
+ * "Accreditation / Recognition Body | Status / Description | Source Link"
+ * on another, and failing to recognise the second published a card reading
+ * "Accreditation / Recognition Body — Status / Description" as though it
+ * were a real accreditation.
+ */
 function looksLikeHeader(row: Row, expected: string[]): boolean {
-  const cells = filled(row).map(key);
-  return expected.some((e) => cells.includes(key(e)));
+  // The first cell only, and by prefix.
+  //
+  // Searching every cell for the keyword was far too eager: a programme row
+  // whose Source Link reads "MBA Program Details" contains "program", and a
+  // faculty row whose blurb opens "Experienced in management education"
+  // contains "experience", so both were discarded as headers — it cost
+  // Amity three programmes and four faculty, and AMU every programme it has.
+  // A heading announces itself in its first cell; a value rarely begins with
+  // the name of its own column.
+  const first = key(cell(row, 0));
+  return !!first && expected.some((e) => first.startsWith(key(e)));
+}
+
+/**
+ * A lone cell inside a table is a sub-title, not a row.
+ *
+ * Alliance writes "Programmes Summary" on its own line above the actual
+ * table, which was read as a programme and shown on the card as a course
+ * called "Programmes Summary".
+ */
+function isSubTitle(row: Row): boolean {
+  return filled(row).length === 1;
 }
 
 /**
@@ -321,7 +351,8 @@ function parseInfo(rows: Row[]): Partial<ParsedUniversity> & { _pageCellWasNotAU
 function parseAccreditations(rows: Row[]): UniversityAccreditationRow[] {
   const out: UniversityAccreditationRow[] = [];
   for (const row of rows) {
-    if (looksLikeHeader(row, ['Accreditation Body', 'Body'])) continue;
+    if (isSubTitle(row)) continue;
+    if (looksLikeHeader(row, ['accreditation', 'recognition', 'body', 'status'])) continue;
     const body = cell(row, 0);
     if (!body) continue;
     out.push({ body, status: cell(row, 1) || undefined });
@@ -332,7 +363,8 @@ function parseAccreditations(rows: Row[]): UniversityAccreditationRow[] {
 function parseProgrammes(rows: Row[]): UniversityProgrammeRow[] {
   const out: UniversityProgrammeRow[] = [];
   for (const row of rows) {
-    if (looksLikeHeader(row, ['Programme', 'Program', 'Programe'])) continue;
+    if (isSubTitle(row)) continue;
+    if (looksLikeHeader(row, ['programme', 'program', 'programe', 'fullname', 'sourcelink'])) continue;
     const code = cell(row, 0);
     if (!code) continue;
     out.push({
@@ -454,6 +486,18 @@ function parseFees(rows: Row[], opts: { level?: string; audience: string }): Uni
     // every header encountered re-maps the columns rather than only the first.
     const maybeHeader = mapFeeColumns(row);
     if (maybeHeader) { cols = maybeHeader; continue; }
+
+    /**
+     * A row of labels with no figure in it anywhere is another table's
+     * header, not a priced course — every real fee row carries at least a
+     * duration or an amount. Sharda's registration-and-exam table is headed
+     * "Category | Target Audience | One-Time Registration Fee | …", whose
+     * money columns are all excluded as non-programme charges, so it maps to
+     * nothing and used to fall through onto the previous table's columns and
+     * publish a programme called "Category".
+     */
+    if (filled(row).length >= 2 && !/\d/.test(filled(row).join(' '))) { cols = null; continue; }
+
     if (!cols) continue;   // rows before any header are prose, not fees
 
     const programmeName = cell(row, cols.programme!);
@@ -491,7 +535,8 @@ function parseFees(rows: Row[], opts: { level?: string; audience: string }): Uni
 function parseSpecializations(rows: Row[]): UniversitySpecialization[] {
   const out: UniversitySpecialization[] = [];
   for (const row of rows) {
-    if (looksLikeHeader(row, ['Programme', 'Program', 'Programe'])) continue;
+    if (isSubTitle(row)) continue;
+    if (looksLikeHeader(row, ['programme', 'program', 'programe', 'specializ', 'specialis', 'electivegroup'])) continue;
     const programme = cell(row, 0);
     const specialization = cell(row, 1);
     if (!programme || !specialization) continue;
@@ -541,7 +586,8 @@ function parsePartners(rows: Row[]): string[] {
 function parseFaculty(rows: Row[]): UniversityFacultyMember[] {
   const out: UniversityFacultyMember[] = [];
   for (const row of rows) {
-    if (looksLikeHeader(row, ['Name', 'Designation'])) continue;
+    if (isSubTitle(row)) continue;
+    if (looksLikeHeader(row, ['name', 'designation', 'qualification', 'experience', 'faculty'])) continue;
     const name = cell(row, 0);
     if (!name) continue;
     out.push({
@@ -558,7 +604,8 @@ function parseFaculty(rows: Row[]): UniversityFacultyMember[] {
 function parseLocation(rows: Row[]): UniversityLocationStop[] {
   const out: UniversityLocationStop[] = [];
   for (const row of rows) {
-    if (looksLikeHeader(row, ['Transport Type', 'Transport'])) continue;
+    if (isSubTitle(row)) continue;
+    if (looksLikeHeader(row, ['transport', 'neareststation', 'distance', 'sourcelink', 'category', 'targetaudience'])) continue;
     const transportType = cell(row, 0);
     if (!transportType) continue;
     out.push({
