@@ -87,9 +87,9 @@ function Section({
         <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10 ring-1 ring-inset ring-primary/15">
           <Icon className="h-3.5 w-3.5 text-primary" />
         </span>
-        <h3 className="text-base font-bold tracking-tight text-slate-100">{title}</h3>
+        <h3 className="text-base font-bold tracking-tight text-zinc-100">{title}</h3>
         {count !== undefined && (
-          <span className="rounded-full bg-white/10 px-2 py-0.5 text-[11px] font-bold text-slate-300 ring-1 ring-inset ring-white/10">{count}</span>
+          <span className="rounded-full bg-white/10 px-2 py-0.5 text-[11px] font-bold text-zinc-300 ring-1 ring-inset ring-white/10">{count}</span>
         )}
       </div>
       {children}
@@ -151,7 +151,7 @@ function FeeTable({ rows }: { rows: UniversityDetail['programmeFees'] }) {
     <div className="overflow-x-auto rounded-xl border border-white/10 bg-white/[0.04] shadow-sm">
       <table className="w-full border-collapse text-sm">
         <thead>
-          <tr className="border-b border-white/10 bg-white/[0.06] text-[10px] font-bold uppercase tracking-wider text-slate-400">
+          <tr className="border-b border-white/10 bg-white/[0.06] text-[10px] font-bold uppercase tracking-wider text-zinc-400">
             <th className="px-3 py-2 text-left">Programme</th>
             {has.duration && <th className="whitespace-nowrap px-3 py-2 text-left">Duration</th>}
             {has.oneTime  && <th className="whitespace-nowrap px-3 py-2 text-right">One Time</th>}
@@ -379,7 +379,7 @@ export function UniversityDetailPanel({
         // No backdrop-blur: blurring the whole viewport is repainted every
         // frame of the slide, and on a throttled machine that alone cost
         // more than the panel it was decorating.
-        className="fixed inset-0 z-30 bg-slate-950/65"
+        className="fixed inset-0 z-30 bg-black/60"
       />
       <motion.aside
         initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }}
@@ -427,13 +427,22 @@ export function UniversityDetailPanel({
            * glass on arrival, which is when anyone is looking at it.
            */
           /**
-           * Opaque, not frosted. A backdrop-filter over a panel this size is
-           * re-sampled whenever anything beneath it changes, and that was
-           * the remaining cost in a scroll. The glass look survives in the
-           * layered surfaces and inset highlights inside, which cost
-           * nothing to scroll past.
+           * Neutral grey, not the theme's near-black blue.
+           *
+           * The dark palette's background is 222° at 4.9% lightness — almost
+           * black, and almost entirely blue. Blue is the end of the spectrum
+           * that tires eyes soonest, and a panel this large is most of the
+           * screen while it is open. Zinc is the same darkness with the hue
+           * taken out, which is easier to sit in front of and lets the blue
+           * that is left — the accent on capsules and icons — actually read
+           * as an accent.
+           *
+           * Opaque rather than frosted: a backdrop-filter over a panel this
+           * size is re-sampled whenever anything beneath it changes, which
+           * was the remaining cost in a scroll. The layered surfaces inside
+           * carry the depth and cost nothing to scroll past.
            */
-          'bg-background',
+          'bg-zinc-900',
         )}
         role="dialog"
         aria-label={data?.name ?? 'University details'}
@@ -467,10 +476,10 @@ export function UniversityDetailPanel({
               panel. The header is part of the same surface, so it is stated
               in the same register.
             */}
-            <div className="relative overflow-hidden bg-gradient-to-br from-slate-900 via-slate-900 to-indigo-950 px-5 pb-7 pt-5 text-slate-50 sm:px-8">
+            <div className="relative overflow-hidden bg-gradient-to-br from-zinc-800 to-zinc-900 px-5 pb-7 pt-5 text-zinc-50 sm:px-8">
               {/* A broad highlight across the top-left, which is what gives
                   the header its sense of a lit surface rather than a fill. */}
-              <div aria-hidden className="pointer-events-none absolute -left-24 -top-32 h-64 w-96 rounded-full bg-indigo-500/20 blur-3xl" />
+              <div aria-hidden className="pointer-events-none absolute -left-24 -top-32 h-64 w-96 rounded-full bg-white/10 blur-3xl" />
               <button
                 onClick={onClose}
                 aria-label="Close"
@@ -481,12 +490,12 @@ export function UniversityDetailPanel({
 
               <div className="mb-3 flex flex-wrap items-center gap-2">
                 {data.universityType && (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2.5 py-1 text-[11px] font-semibold text-slate-200 ring-1 ring-inset ring-white/15">
+                  <span className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2.5 py-1 text-[11px] font-semibold text-zinc-300 ring-1 ring-inset ring-white/15">
                     <BadgeCheck className="h-3 w-3" />{data.universityType}
                   </span>
                 )}
                 {data.establishmentYear && (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2.5 py-1 text-[11px] font-semibold text-slate-200 ring-1 ring-inset ring-white/15">
+                  <span className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2.5 py-1 text-[11px] font-semibold text-zinc-300 ring-1 ring-inset ring-white/15">
                     <CalendarDays className="h-3 w-3" />Est. {data.establishmentYear}
                   </span>
                 )}
@@ -494,12 +503,12 @@ export function UniversityDetailPanel({
 
               <h2 className="relative pr-12 text-[26px] font-bold leading-tight tracking-tight">{data.name}</h2>
               {data.address && (
-                <p className="mt-1.5 flex items-start gap-1.5 text-sm text-slate-300">
+                <p className="mt-1.5 flex items-start gap-1.5 text-sm text-zinc-300">
                   <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0" />{data.address}
                 </p>
               )}
 
-              <div className="relative mt-4 flex flex-wrap gap-x-6 gap-y-2 border-t border-white/10 pt-3 text-sm text-slate-300">
+              <div className="relative mt-4 flex flex-wrap gap-x-6 gap-y-2 border-t border-white/10 pt-3 text-sm text-zinc-300">
                 {data.email && (
                   <a href={`mailto:${data.email}`} className="inline-flex items-center gap-1.5 hover:underline">
                     <Mail className="h-3.5 w-3.5" />{data.email}
