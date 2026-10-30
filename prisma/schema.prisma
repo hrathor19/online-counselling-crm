@@ -1413,23 +1413,26 @@ model University {
   logoUrl           String?
 
   /// [{ question, answers: string[] }]
-  faqs          Json?
+  faqs            Json?
   /// string[] — the hiring partners grid.
-  partners      Json?
+  partners        Json?
   /// [{ name, designation, qualification, experience, description }]
-  faculty       Json?
+  faculty         Json?
   /// [{ transportType, nearest, distance }]
-  locationStops Json?
+  locationStops   Json?
   /// [{ group, credit, eligibility }] — "group" separates the scholarship
   /// table from the discount table, which the sheet stacks under one heading.
-  scholarships  Json?
+  scholarships    Json?
+  /// [{ programme, specialization, type }] — the electives inside each
+  /// course, which most tabs carry as their own section.
+  specializations Json?
   /// Free text a section carries above its table, e.g. the scholarship
   /// caveat about document verification.
-  sectionNotes  Json?
+  sectionNotes    Json?
   /// Sections the parser did not recognise, kept verbatim rather than
   /// dropped: a university whose sheet grows an eleventh section should
   /// surface as "not imported yet", not silently lose data.
-  extraSections Json?
+  extraSections   Json?
 
   isActive     Boolean  @default(true)
   sourceFile   String?
@@ -1495,16 +1498,29 @@ model UniversityProgrammeFee {
   universityId   String
   university     University @relation(fields: [universityId], references: [id], onDelete: Cascade)
   programmeName  String
-  /// "Undergraduate" or "Postgraduate", from which section the row came.
-  level          String
+  /// "Undergraduate" or "Postgraduate" where the section or a Level column
+  /// says so. Nullable because many tabs have a single "Fee Structure"
+  /// table that never states a level.
+  level          String?
   duration       String?
   oneTimePayment Int?
   annualFee      Int?
   perSemesterFee Int?
   emiPerMonth    Int?
+  /// Several tabs carry the entry requirement beside the price, which is the
+  /// other thing a counsellor is asked in the same breath.
+  eligibility    String?
+  programmeUrl   String?
+  /// "Domestic" or "International" — a number of universities publish a
+  /// separate overseas fee table, and mixing the two would misquote both.
+  audience       String     @default("Domestic")
+  /// "INR" or "USD". Sharda and others price overseas students in dollars,
+  /// and a $2,400 MBA stored as rupees reads as a ₹2,400 MBA.
+  currency       String     @default("INR")
   sortOrder      Int        @default(0)
 
   @@index([universityId])
   @@index([level])
+  @@index([audience])
   @@index([oneTimePayment])
 }

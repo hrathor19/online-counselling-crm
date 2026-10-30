@@ -2,7 +2,7 @@
 
 import { useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Upload, Trash2, Loader2, AlertTriangle, CheckCircle2, FileText, Building2 } from 'lucide-react';
+import { Upload, Trash2, Loader2, AlertTriangle, CheckCircle2, FileText, Building2, Link2, MinusCircle, XCircle } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { formatIstDateTime } from '@/lib/ist-time';
@@ -21,6 +21,21 @@ interface UniversityRow {
   sourceFile?: string | null; importedAt: string;
   importedBy?: { name: string } | null;
   _counts: { programmes: number; fees: number; accreditations: number };
+}
+
+interface TabResult {
+  tab: string;
+  status: 'imported' | 'replaced' | 'skipped' | 'failed';
+  university?: string;
+  reason?: string;
+  counts?: Record<string, number>;
+  warnings?: string[];
+}
+
+interface SheetResult {
+  success?: boolean; tabs: number;
+  imported: number; replaced: number; skipped: number; failed: number;
+  results: TabResult[];
 }
 
 interface ImportResult {
@@ -42,6 +57,8 @@ export default function ManageUniversitiesPage() {
   const fileRef = useRef<HTMLInputElement>(null);
   const [deleting, setDeleting] = useState<UniversityRow | null>(null);
   const [lastResult, setLastResult] = useState<ImportResult | null>(null);
+  const [sheetUrl, setSheetUrl] = useState('');
+  const [sheetResult, setSheetResult] = useState<SheetResult | null>(null);
 
   const { data, isLoading } = useQuery<{ universities: UniversityRow[] }>({
     queryKey: ['manage-universities'],
@@ -72,6 +89,40 @@ export default function ManageUniversitiesPage() {
     onError: (err) => {
       setLastResult(null);
       toast({ variant: 'destructive', title: 'Import failed', description: err.message });
+    },
+  });
+
+  /**
+   * Importing a whole workbook, which is how these sheets are actually kept:
+   * one tab per university. A CSV export only ever contains the first tab,
+   * so uploading one of those produced a single university out of a file
+   * that holds thirty-three.
+   */
+  const sheetMutation = useMutation<SheetResult, Error, string>({
+    mutationFn: (url) =>
+      fetch('/api/universities/import-sheet', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url }),
+      }).then(async (r) => {
+        const body = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(typeof body?.error === 'string' ? body.error : 'That sheet could not be imported.');
+        return body as SheetResult;
+      }),
+    onSuccess: (result) => {
+      setSheetResult(result);
+      setLastResult(null);
+      toast({
+        title: `${result.imported + result.replaced} universities imported`,
+        description: `${result.imported} new, ${result.replaced} updated, ${result.skipped} skipped, ${result.failed} failed across ${result.tabs} tabs.`,
+      });
+      qc.invalidateQueries({ queryKey: ['manage-universities'] });
+      qc.invalidateQueries({ queryKey: ['universities'] });
+      qc.invalidateQueries({ queryKey: ['university-filters'] });
+    },
+    onError: (err) => {
+      setSheetResult(null);
+      toast({ variant: 'destructive', title: 'Sheet import failed', description: err.message });
     },
   });
 
@@ -111,6 +162,81 @@ export default function ManageUniversitiesPage() {
         </p>
       </div>
 
+      {/* ── Import a whole workbook ── */}
+      <div className="rounded-xl border border-border/60 bg-card p-5">
+        <div className="mb-1 flex items-center gap-2">
+          <Link2 className="h-4 w-4 text-primary" />
+          <h2 className="text-sm font-bold">Import a Google Sheet</h2>
+        </div>
+        <p className="mb-3 text-xs text-muted-foreground">
+          One tab per university — every tab is imported in one go. The sheet must be shared
+          so that <span className="font-medium">anyone with the link can view</span> it.
+        </p>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <input
+            type="url"
+            value={sheetUrl}
+            onChange={(e) => setSheetUrl(e.target.value)}
+            placeholder="https://docs.google.com/spreadsheets/d/…"
+            className="h-9 flex-1 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+          />
+          <button
+            onClick={() => sheetMutation.mutate(sheetUrl)}
+            disabled={!sheetUrl.trim() || sheetMutation.isPending}
+            className="inline-flex h-9 items-center justify-center gap-2 rounded-md bg-primary px-4 text-sm font-semibold text-primary-foreground disabled:opacity-60"
+          >
+            {sheetMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link2 className="h-4 w-4" />}
+            Import all tabs
+          </button>
+        </div>
+        {sheetMutation.isPending && (
+          <p className="mt-2 text-xs text-muted-foreground">
+            Reading every tab — a workbook of thirty or so takes a minute.
+          </p>
+        )}
+      </div>
+
+      {/* ── Per-tab outcome ── */}
+      {sheetResult && (
+        <div className="rounded-lg border border-border/60">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-border/60 bg-muted/40 px-4 py-2.5 text-xs font-semibold">
+            <span>{sheetResult.tabs} tabs read</span>
+            <span className="text-emerald-600">{sheetResult.imported} imported</span>
+            <span className="text-blue-600">{sheetResult.replaced} updated</span>
+            <span className="text-muted-foreground">{sheetResult.skipped} skipped</span>
+            {sheetResult.failed > 0 && <span className="text-destructive">{sheetResult.failed} failed</span>}
+          </div>
+          <div className="max-h-80 overflow-y-auto">
+            {sheetResult.results.map((r, i) => (
+              <div key={i} className="flex items-start gap-2 border-b border-border/30 px-4 py-2 text-xs last:border-0">
+                {r.status === 'imported' || r.status === 'replaced'
+                  ? <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600" />
+                  : r.status === 'skipped'
+                    ? <MinusCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    : <XCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-destructive" />}
+                <div className="min-w-0 flex-1">
+                  <p className="font-semibold">
+                    {r.tab}
+                    {r.university && r.university !== r.tab && (
+                      <span className="ml-1.5 font-normal text-muted-foreground">→ {r.university}</span>
+                    )}
+                  </p>
+                  {r.counts && (
+                    <p className="text-muted-foreground">
+                      {r.counts.programmes} programmes · {r.counts.fees} priced courses · {r.counts.specializations} specialisations · {r.counts.faqs} FAQs
+                    </p>
+                  )}
+                  {r.reason && <p className="text-muted-foreground">{r.reason}</p>}
+                  {r.warnings?.map((w, j) => (
+                    <p key={j} className="text-amber-700 dark:text-amber-400">{w}</p>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* ── Upload ── */}
       <div className="rounded-xl border border-dashed border-border bg-muted/20 p-6 text-center">
         <input
@@ -121,7 +247,7 @@ export default function ManageUniversitiesPage() {
           onChange={(e) => { const f = e.target.files?.[0]; if (f) onFile(f); e.target.value = ''; }}
         />
         <Upload className="mx-auto mb-2 h-7 w-7 text-muted-foreground" />
-        <p className="text-sm font-semibold">Upload a university profile CSV</p>
+        <p className="text-sm font-semibold">Or upload a single university&apos;s CSV</p>
         <p className="mx-auto mt-1 max-w-xl text-xs text-muted-foreground">
           One file per university, laid out in the numbered sections below. Uploading a university
           that is already here replaces its profile — that is how you publish updated fees.

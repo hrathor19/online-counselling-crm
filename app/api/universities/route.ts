@@ -82,7 +82,7 @@ export async function GET(req: NextRequest) {
       const fee: Prisma.IntNullableFilter = {};
       if (q.feesMin !== undefined) fee.gte = q.feesMin;
       if (q.feesMax !== undefined) fee.lte = q.feesMax;
-      and.push({ programmeFees: { some: { oneTimePayment: fee } } });
+      and.push({ programmeFees: { some: { oneTimePayment: fee, currency: 'INR' } } });
     }
 
     if (and.length) where.AND = and;
@@ -100,7 +100,10 @@ export async function GET(req: NextRequest) {
           accreditations: { select: { body: true, status: true }, orderBy: { sortOrder: 'asc' } },
           programmes:     { select: { code: true, level: true }, orderBy: { sortOrder: 'asc' } },
           // Only what the "Average full fees" line needs.
-          programmeFees:  { select: { oneTimePayment: true }, where: { oneTimePayment: { not: null } } },
+          // Rupees only: a card showing "from ₹1,400" because one row was
+          // really $1,400 of overseas fees would undercut the real price by
+          // two orders of magnitude.
+          programmeFees:  { select: { oneTimePayment: true }, where: { oneTimePayment: { not: null }, currency: 'INR' } },
         },
       }),
       prisma.university.count({ where }),

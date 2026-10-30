@@ -4,8 +4,8 @@ import { z } from 'zod';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { hasPermission, logActivity } from '@/lib/permissions';
-import { parseUniversityCsv, splitCsvRows } from '@/lib/university-csv';
-import { Feature, Prisma } from '@prisma/client';
+import { parseCsvText, persistUniversity, contentCount } from '@/lib/university-import';
+import { Feature } from '@prisma/client';
 
 /**
  * Imports one university from one CSV.
@@ -29,17 +29,6 @@ const bodySchema = z.object({
   csv: z.string().min(1).max(2_000_000),
 });
 
-/** A JSON column's value, or SQL NULL when the section is empty. */
-function json(value: unknown[] | Record<string, unknown>): Prisma.InputJsonValue | typeof Prisma.DbNull {
-  const empty = Array.isArray(value) ? value.length === 0 : Object.keys(value).length === 0;
-  return empty ? Prisma.DbNull : (value as Prisma.InputJsonValue);
-}
-
-function slugify(name: string): string {
-  return name.toLowerCase().normalize('NFKD')
-    .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80) || 'university';
-}
-
 export async function POST(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
@@ -53,7 +42,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: parsedBody.error.flatten() }, { status: 400 });
     }
 
-    const parsed = parseUniversityCsv(splitCsvRows(parsedBody.data.csv));
+    const parsed = parseCsvText(parsedBody.data.csv);
 
     if (!parsed.name) {
       return NextResponse.json({
@@ -65,9 +54,7 @@ export async function POST(req: NextRequest) {
     // A file with a name but nothing else is almost always the wrong file
     // rather than a genuinely empty university — say so instead of creating
     // a profile with nothing on it.
-    const contentRows = parsed.accreditations.length + parsed.programmes.length + parsed.fees.length
-      + parsed.faqs.length + parsed.partners.length + parsed.faculty.length
-      + parsed.locationStops.length + parsed.scholarships.length;
+    const contentRows = contentCount(parsed);
     if (contentRows === 0) {
       return NextResponse.json({
         error: `"${parsed.name}" has no programmes, fees, accreditations or any other section. Check this is the right file.`,
@@ -75,115 +62,27 @@ export async function POST(req: NextRequest) {
       }, { status: 400 });
     }
 
-    // A slug collision between two differently-named universities is
-    // possible ("Amity – Online" and "Amity - Online" both slugify the
-    // same), so it is made unique rather than left to fail on the index.
-    const existing = await prisma.university.findUnique({ where: { name: parsed.name }, select: { id: true } });
-    let slug = slugify(parsed.name);
-    const slugOwner = await prisma.university.findUnique({ where: { slug }, select: { id: true } });
-    if (slugOwner && slugOwner.id !== existing?.id) slug = `${slug}-${Date.now().toString(36)}`;
+    const saved = await prisma.$transaction(
+      (tx) => persistUniversity(tx, parsed, { sourceFile: parsedBody.data.fileName, userId: session.user.id }),
+      { timeout: 30_000 },
+    );
 
-    const scalars = {
-      name: parsed.name,
-      slug,
-      universityType:    parsed.universityType    ?? null,
-      establishmentYear: parsed.establishmentYear ?? null,
-      address:           parsed.address           ?? null,
-      city:              parsed.city              ?? null,
-      state:             parsed.state             ?? null,
-      email:             parsed.email             ?? null,
-      phone:             parsed.phone             ?? null,
-      universityPageUrl: parsed.universityPageUrl ?? null,
-      // DbNull, not undefined, when a section is absent. On a re-upload
-      // `undefined` means "leave this column alone", which would keep the
-      // previous file's FAQs on a university whose new sheet has dropped
-      // them — the profile would then match no version of the CSV.
-      faqs:          json(parsed.faqs),
-      partners:      json(parsed.partners),
-      faculty:       json(parsed.faculty),
-      locationStops: json(parsed.locationStops),
-      scholarships:  json(parsed.scholarships),
-      sectionNotes:  json(Object.keys(parsed.sectionNotes).length ? parsed.sectionNotes : []),
-      extraSections: json(parsed.extraSections),
-      sourceFile:    parsedBody.data.fileName,
-      importedAt:    new Date(),
-      importedById:  session.user.id,
-      isActive:      true,
-    };
-
-    const university = await prisma.$transaction(async (tx) => {
-      const saved = existing
-        ? await tx.university.update({ where: { id: existing.id }, data: scalars })
-        : await tx.university.create({ data: scalars });
-
-      if (existing) {
-        // The CSV is the whole truth about this university, so last time's
-        // rows go rather than being merged with this time's.
-        await tx.universityAccreditation.deleteMany({ where: { universityId: saved.id } });
-        await tx.universityProgramme.deleteMany({ where: { universityId: saved.id } });
-        await tx.universityProgrammeFee.deleteMany({ where: { universityId: saved.id } });
-      }
-
-      if (parsed.accreditations.length) {
-        await tx.universityAccreditation.createMany({
-          data: parsed.accreditations.map((a, i) => ({
-            universityId: saved.id, body: a.body, status: a.status ?? null, sortOrder: i,
-          })),
-        });
-      }
-      if (parsed.programmes.length) {
-        await tx.universityProgramme.createMany({
-          data: parsed.programmes.map((p, i) => ({
-            universityId: saved.id, code: p.code, fullName: p.fullName ?? null,
-            level: p.level ?? null, durationMonths: p.durationMonths ?? null,
-            specializations: p.specializations ?? null, sortOrder: i,
-          })),
-        });
-      }
-      if (parsed.fees.length) {
-        await tx.universityProgrammeFee.createMany({
-          data: parsed.fees.map((f, i) => ({
-            universityId: saved.id, programmeName: f.programmeName, level: f.level,
-            duration: f.duration ?? null, oneTimePayment: f.oneTimePayment ?? null,
-            annualFee: f.annualFee ?? null, perSemesterFee: f.perSemesterFee ?? null,
-            emiPerMonth: f.emiPerMonth ?? null, sortOrder: i,
-          })),
-        });
-      }
-
-      await logActivity({
-        userId: session.user.id,
-        action: 'UNIVERSITY_IMPORTED',
-        targetId: saved.id,
-        targetType: 'University',
-        description: `${existing ? 'Updated' : 'Imported'} university "${saved.name}" from ${parsedBody.data.fileName}`,
-        metadata: {
-          replaced: !!existing,
-          programmes: parsed.programmes.length,
-          fees: parsed.fees.length,
-          accreditations: parsed.accreditations.length,
-        },
-      });
-
-      return saved;
+    await logActivity({
+      userId: session.user.id,
+      action: 'UNIVERSITY_IMPORTED',
+      targetId: saved.id,
+      targetType: 'University',
+      description: `${saved.replaced ? 'Updated' : 'Imported'} university "${saved.name}" from ${parsedBody.data.fileName}`,
+      metadata: { replaced: saved.replaced, ...saved.counts },
     });
 
     return NextResponse.json({
       success: true,
-      replaced: !!existing,
-      university: { id: university.id, name: university.name, slug: university.slug },
-      counts: {
-        accreditations: parsed.accreditations.length,
-        programmes:     parsed.programmes.length,
-        fees:           parsed.fees.length,
-        faqs:           parsed.faqs.length,
-        partners:       parsed.partners.length,
-        faculty:        parsed.faculty.length,
-        locationStops:  parsed.locationStops.length,
-        scholarships:   parsed.scholarships.length,
-      },
+      replaced: saved.replaced,
+      university: { id: saved.id, name: saved.name, slug: saved.slug },
+      counts: saved.counts,
       warnings: parsed.warnings,
-    }, { status: existing ? 200 : 201 });
+    }, { status: saved.replaced ? 200 : 201 });
   } catch (error) {
     console.error('[universities/import POST]', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

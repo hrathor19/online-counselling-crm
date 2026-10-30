@@ -40,9 +40,22 @@ export interface UniversityProgrammeRow {
   durationMonths?: number; specializations?: number;
 }
 export interface UniversityFeeRow {
-  programmeName: string; level: string; duration?: string;
+  programmeName: string;
+  /** "Undergraduate"/"Postgraduate" when the section or a Level column says so. */
+  level?: string;
+  duration?: string;
   oneTimePayment?: number; annualFee?: number;
   perSemesterFee?: number; emiPerMonth?: number;
+  eligibility?: string;
+  programmeUrl?: string;
+  /** "INR" or "USD" — several sheets price overseas students in dollars. */
+  currency: string;
+  /** "International" for the separate overseas fee table, else "Domestic". */
+  audience: string;
+}
+
+export interface UniversitySpecialization {
+  programme: string; specialization: string; type?: string;
 }
 
 export interface ParsedUniversity {
@@ -63,6 +76,7 @@ export interface ParsedUniversity {
   faculty: UniversityFacultyMember[];
   locationStops: UniversityLocationStop[];
   scholarships: UniversityScholarshipRow[];
+  specializations: UniversitySpecialization[];
   sectionNotes: Record<string, string[]>;
   extraSections: { heading: string; rows: string[][] }[];
   /** Non-fatal observations worth showing the person who uploaded the file. */
@@ -83,25 +97,42 @@ function key(text: string): string {
 }
 
 /**
- * A section heading: a lone cell that opens with a number, as every one of
- * them does ("1. University information", "9.Location").
+ * A row that *might* be a section heading: a lone cell opening with a number.
+ *
+ * Might, because these sheets also number things that are not sections.
+ * "10th & 12th Mark sheets & Passing Certificates" in a documents list and
+ * "1. Business Administrator" in a careers list both look exactly like
+ * "1. University information" to a regex. Ordinal suffixes are dropped here;
+ * everything else is settled by the vocabulary in sectionOf, and a candidate
+ * that names no known section is treated as content of the section it sits
+ * in — which is what those list items are.
  */
-function headingOf(row: Row): string | null {
+function headingCandidate(row: Row): string | null {
   const cells = filled(row);
   if (cells.length !== 1) return null;
   const m = /^(\d{1,2})\s*[.)]?\s*(.+)$/.exec(cells[0]);
   if (!m) return null;
   const title = m[2].trim();
-  // A numbered sentence inside a section ("20% off …") is not a heading.
+  if (/^(th|st|nd|rd)\b/i.test(title)) return null;   // "10th & 12th Mark sheets"
   return title.length >= 3 ? title : null;
 }
 
-/** "₹1,75,120" or "₹7,877/month" → 175120 / 7877. Null when there is no number. */
+/**
+ * The first rupee figure in a cell: "₹1,75,120" → 175120, "₹7,877/month" →
+ * 7877.
+ *
+ * The first one specifically, because a cell is not always a single figure —
+ * NMIMS writes "₹1,96,000 (Lump sum) / ₹2,10,000 (Annual)" in one box, and
+ * stripping every non-digit out of that yields 196000210000, a number that
+ * is both wrong and silently plausible. Taking the leading figure gives the
+ * headline price, which is what the column is for; the alternative reading
+ * is in the annual column anyway.
+ */
 export function parseMoney(text: string | undefined): number | undefined {
   if (!text) return undefined;
-  const digits = text.replace(/[^\d]/g, '');
-  if (!digits) return undefined;
-  const n = Number(digits);
+  const m = /\d[\d,]*/.exec(text);
+  if (!m) return undefined;
+  const n = Number(m[0].replace(/,/g, ''));
   return Number.isFinite(n) && n > 0 ? n : undefined;
 }
 
@@ -139,43 +170,125 @@ export function splitCityState(address: string | undefined): { city?: string; st
 // ─── Section recognition ──────────────────────────────────────────────────────
 
 type SectionId =
-  | 'info' | 'accreditations' | 'programmes' | 'faqs' | 'partners'
-  | 'ugFees' | 'pgFees' | 'faculty' | 'location' | 'scholarships';
+  | 'info' | 'accreditations' | 'programmes' | 'specializations'
+  | 'fees' | 'ugFees' | 'pgFees' | 'intlFees'
+  | 'faqs' | 'partners' | 'faculty' | 'location' | 'scholarships';
 
 /**
- * Which section a heading names.
+ * Every spelling of every section seen across the workbook, mapped to the
+ * one section it means.
  *
- * Substring matching on the squashed heading, so "Scolorship" still reaches
- * "scholarship" — the misspelling is in the source sheet, and the rule only
- * has to be good enough to tell ten sections apart.
+ * It is this long because the sheets are written by hand, one tab per
+ * university, and they disagree constantly: the same section is
+ * "LOCATION AND TRANSPORTATION" on one tab, "Location & Connectivity" on
+ * another and "9.Location" on a third; scholarships appear as
+ * "SCHOLARSHIP & DISCOUNTS", "Scholarships and Discounts", "Scholorships and
+ * Discounts" and "Scolorship". Faculty is split across up to three headings
+ * on a single tab, and those merge rather than overwrite.
+ *
+ * Matching is exact on the squashed form first, then on the keywords below,
+ * so a new wording usually lands in the right place without an edit here.
+ */
+const SECTION_ALIASES: [SectionId, string[]][] = [
+  ['info',            ['universityinformation', 'universityinstitutioninformation', 'universityinfo']],
+  ['accreditations',  ['accreditationsandrecognitions', 'accreditationsrecognitions', 'accreditations']],
+  ['programmes',      ['programmessummary', 'programsummary', 'programmessummaryspecializations']],
+  ['specializations', ['programspecilization', 'programspecialization', 'programspecializations', 'programmespecializations']],
+  ['ugFees',          ['undergraduateprograms', 'undergraduateprogrammes', 'ugprograms', 'ugprogrammes']],
+  ['pgFees',          ['postgraduateprograms', 'postgraduateprogrammes', 'pgprograms', 'pgprogrammes']],
+  ['intlFees',        ['feestructureforinternationalstudents', 'internationalstudentfeestructure', 'internationalfeestructure']],
+  ['fees',            ['feestructure', 'feesstructure', 'fees']],
+  ['faqs',            ['frequentlyaskedquestions', 'frequentlyaskedquestionsfaqs', 'faqs', 'faq']],
+  ['partners',        ['companypartners', 'hiringpartners', 'companypartnershiringpartners', 'recruiters']],
+  ['faculty',         ['topfaculties', 'topfaculty', 'coreacademicleadershipuniversityfaculty', 'industryexpertsacademicians', 'visitingindustryexpertsmentors', 'faculties']],
+  ['location',        ['locationandtransportation', 'locationconnectivity', 'locationtransportation', 'location']],
+  ['scholarships',    ['scholarshipdiscounts', 'scholarshipsanddiscounts', 'scholorshipsanddiscounts', 'scholarshipsdiscounts', 'scolorship', 'scholarship', 'scholarships']],
+];
+
+/** Keyword fallbacks, tried in order — the first whose keyword appears wins. */
+const SECTION_KEYWORDS: [SectionId, string][] = [
+  ['intlFees',        'international'],
+  ['ugFees',          'undergraduate'],
+  ['pgFees',          'postgraduate'],
+  ['specializations', 'specilization'],
+  ['specializations', 'specialization'],
+  ['accreditations',  'accreditation'],
+  ['faqs',            'faq'],
+  ['faqs',            'frequentlyasked'],
+  ['faculty',         'facult'],
+  ['partners',        'partner'],
+  ['scholarships',    'scholar'],
+  ['scholarships',    'scolor'],
+  ['scholarships',    'scholor'],
+  ['location',        'location'],
+  ['programmes',      'programmessummary'],
+  ['fees',            'feestructure'],
+  ['info',            'universityinformation'],
+];
+
+/**
+ * Which section a heading names, or null when it names none — in which case
+ * the row is a numbered list item rather than a heading, and stays with the
+ * section it is inside.
  */
 function sectionOf(heading: string): SectionId | null {
   const k = key(heading);
-  if (k.includes('universityinformation') || k === 'universityinfo') return 'info';
-  if (k.includes('accreditation')) return 'accreditations';
-  if (k.includes('programmessummary') || k.includes('programsummary')) return 'programmes';
-  if (k.includes('question') || k.includes('faq')) return 'faqs';
-  if (k.includes('partner')) return 'partners';
-  if (k.includes('undergraduate')) return 'ugFees';
-  if (k.includes('postgraduate')) return 'pgFees';
-  if (k.includes('facult')) return 'faculty';
-  if (k.includes('location')) return 'location';
-  if (k.includes('scholar') || k.includes('scolor') || k.includes('scolar')) return 'scholarships';
+  for (const [id, aliases] of SECTION_ALIASES) {
+    if (aliases.includes(k)) return id;
+  }
+  // Only short headings get the keyword treatment: a long numbered sentence
+  // in a prose list is not a section, however suggestive a word in it is.
+  if (k.length > 60) return null;
+  for (const [id, word] of SECTION_KEYWORDS) {
+    if (k.includes(word)) return id;
+  }
   return null;
 }
 
 // ─── Per-section parsers ──────────────────────────────────────────────────────
 
-function parseInfo(rows: Row[]): Partial<ParsedUniversity> {
-  const out: Record<string, string> = {};
+/**
+ * The key/value block at the top of a tab.
+ *
+ * Every label here has been seen in the workbook. The tabs do not agree on
+ * much: the name is "University Name" on most, "Institution Name" on MITSDE;
+ * the address is "Address", "Campus Address" or just "Location"; the header
+ * row above it all is "Field | Extracted information" on some tabs,
+ * "Category | Details" on others and "Field | Official value | Source URL"
+ * on Shoolini. Reading only the first spelling of each lost whole
+ * universities, so each field collects its aliases.
+ */
+const INFO_KEYS = {
+  name:    ['universityname', 'institutionname', 'collegename', 'name'],
+  type:    ['universitytype', 'institutiontype', 'type'],
+  year:    ['establishmentyear', 'establishedyear', 'estyear', 'yearofestablishment'],
+  address: ['campusaddress', 'address', 'location', 'campuslocation'],
+  email:   ['admissionsemail', 'email', 'emailid', 'contactemail'],
+  phone:   ['admissionsphone', 'contactnumber', 'phone', 'universityphoneno', 'contactphone', 'mobile'],
+  page:    ['onlineprogrammeswebsite', 'officialuniversitywebsite', 'officialwebpage', 'universitypage', 'website', 'officialwebsite'],
+} as const;
+
+/** The header labels of the key/value block, which are not data. */
+const INFO_HEADER_KEYS = new Set(['field', 'category', 'sectionprimaryfield', 'particulars', 'attribute']);
+
+function pick(out: Record<string, string>, keys: readonly string[]): string | undefined {
+  for (const k of keys) if (out[k]) return out[k];
+  return undefined;
+}
+
+/** Collects every "label, value" pair in a block of rows. */
+function collectPairs(rows: Row[], into: Record<string, string> = {}): Record<string, string> {
   for (const row of rows) {
-    const k = cell(row, 0);
+    const k = key(cell(row, 0));
     const v = cell(row, 1);
-    if (!k || !v) continue;
-    if (key(k) === 'field') continue;   // the "Field | Extracted information" header
-    out[key(k)] = v;
+    if (!k || !v || INFO_HEADER_KEYS.has(k)) continue;
+    if (!(k in into)) into[k] = v;   // first spelling wins
   }
-  const address = out['address'];
+  return into;
+}
+
+function infoFromPairs(out: Record<string, string>): Partial<ParsedUniversity> & { _pageCellWasNotAUrl?: string } {
+  const address = pick(out, INFO_KEYS.address);
   const { city, state } = splitCityState(address);
 
   /**
@@ -184,23 +297,25 @@ function parseInfo(rows: Row[]): Partial<ParsedUniversity> {
    * href — so the cell arrives as "Amity – Online", not a URL. Linking that
    * would produce a dead link, so it is only kept when it actually is one.
    */
-  const pageCell = out['universitypage'] ?? out['website'] ?? '';
+  const pageCell = pick(out, INFO_KEYS.page) ?? '';
   const universityPageUrl = /^https?:\/\//i.test(pageCell) ? pageCell : undefined;
 
   return {
-    name: out['universityname'] ?? out['name'] ?? '',
-    universityType: out['universitytype'] ?? out['type'],
-    establishmentYear: out['establishmentyear'] ?? out['establishedyear'] ?? out['estyear'],
+    name: pick(out, INFO_KEYS.name) ?? '',
+    universityType: pick(out, INFO_KEYS.type),
+    establishmentYear: pick(out, INFO_KEYS.year),
     address,
     city,
     state,
-    email: out['email'],
-    phone: out['contactnumber'] ?? out['phone'] ?? out['universityphoneno'],
+    email: pick(out, INFO_KEYS.email),
+    phone: pick(out, INFO_KEYS.phone),
     universityPageUrl,
-    // Surfaced by the caller so the uploader learns the link did not survive
-    // the export, rather than wondering why the button never appears.
     _pageCellWasNotAUrl: pageCell && !universityPageUrl ? pageCell : undefined,
-  } as Partial<ParsedUniversity> & { _pageCellWasNotAUrl?: string };
+  };
+}
+
+function parseInfo(rows: Row[]): Partial<ParsedUniversity> & { _pageCellWasNotAUrl?: string } {
+  return infoFromPairs(collectPairs(rows));
 }
 
 function parseAccreditations(rows: Row[]): UniversityAccreditationRow[] {
@@ -231,21 +346,156 @@ function parseProgrammes(rows: Row[]): UniversityProgrammeRow[] {
   return out;
 }
 
-function parseFees(rows: Row[], level: string): UniversityFeeRow[] {
+/**
+ * Which field each column of a fee table holds, read from its header row.
+ *
+ * By name rather than by position, because the tables do not agree on
+ * either. Amity's is Programme / Time / One Time Payment / Annual Fee / Per
+ * Semester Fee / EMI; NMIMS's is Programme / Duration / Total Programme Fee
+ * / Annual Fees / Per Semester Fee / Eligibility / Official Programme URL,
+ * and its international table puts a Level column in front of all of it.
+ * Reading column 3 as "the annual fee" would have quietly mixed up fees
+ * across 33 universities.
+ */
+const FEE_COLUMNS: [keyof FeeColumnMap, string[]][] = [
+  ['level',       ['level']],
+  ['programme',   ['programme', 'program', 'programe', 'course']],
+  ['duration',    ['duration', 'time']],
+  ['total',       ['totalprogrammefee', 'totalprogramfee', 'totalcoursefee', 'totalcourse', 'coursefee', 'totalfee', 'totalfees', 'onetimepayment', 'lumpsum', 'fullfee', 'programmefee', 'programfee']],
+  ['annual',      ['annualfee', 'annualfees', 'anualfee', 'anualfees', 'peryear', 'yearlyfee']],
+  ['semester',    ['persemesterfee', 'persemester', 'semesterfee', 'firstsemesterfee']],
+  ['emi',         ['emi', 'nocostemi', 'permonth']],
+  ['eligibility', ['eligibility', 'eligibilitycriteria']],
+  ['url',         ['officialprogrammeurl', 'officialprogramurl', 'programmeurl', 'programurl', 'url', 'link']],
+];
+
+/**
+ * Fee columns that are not the price of the programme.
+ *
+ * Several tables put a registration or application fee beside the course
+ * fee, and "One-Time Registration" matched the "one time" wording closely
+ * enough to be read as the total — which published Alliance's ₹1,000
+ * registration charge as the price of an MBA. A column naming any of these
+ * is skipped rather than mapped to something.
+ */
+const NOT_A_PROGRAMME_FEE = ['registration', 'application', 'examfee', 'cautiondeposit', 'admissionfee', 'processingfee', 'securitydeposit'];
+
+interface FeeColumnMap {
+  level?: number; programme?: number; duration?: number;
+  total?: number; annual?: number; semester?: number; emi?: number;
+  eligibility?: number; url?: number;
+}
+
+/** Maps a header row to column indexes, or null when it is not a header. */
+function mapFeeColumns(row: Row): FeeColumnMap | null {
+  const cells = row.map((c) => key(c ?? ''));
+  const map: FeeColumnMap = {};
+  cells.forEach((cellKey, i) => {
+    if (!cellKey) return;
+    if (NOT_A_PROGRAMME_FEE.some((bad) => cellKey.includes(bad))) return;
+    /**
+     * Anything saying "total … fee" is the programme's price, whatever else
+     * it says. The workbook writes that column as "Total Programme Fee",
+     * "Total Course Fee", "Total Tuition Fee" and "Total / One-Time Fees",
+     * and chasing each spelling with its own alias is a game with no end —
+     * the ones already missed left four universities showing no price at
+     * all. Charges that merely contain the word are excluded above.
+     */
+    if (map.total === undefined && cellKey.includes('total') && cellKey.includes('fee')) {
+      map.total = i;
+      return;
+    }
+    for (const [field, names] of FEE_COLUMNS) {
+      if (map[field] !== undefined) continue;
+      // Longest alias first so "totalprogrammefee" is not claimed by
+      // "programme", and "persemesterfee" not by "fee".
+      if (names.some((n) => cellKey === n) || names.some((n) => cellKey.includes(n) && n.length > 4)) {
+        map[field] = i;
+        return;
+      }
+    }
+  });
+  // A header must at least name the programme column and one money column.
+  const hasMoney = map.total !== undefined || map.annual !== undefined || map.semester !== undefined || map.emi !== undefined;
+  return map.programme !== undefined && hasMoney ? map : null;
+}
+
+/**
+ * A fee table. `level` is the section's level where the section implies one
+ * (the UG and PG sections do); a Level column in the data overrides it, and
+ * when neither says anything the row simply has none.
+ */
+function parseFees(rows: Row[], opts: { level?: string; audience: string }): UniversityFeeRow[] {
   const out: UniversityFeeRow[] = [];
+  let cols: FeeColumnMap | null = null;
+  // A fee section often holds two tables under sub-headings — domestic
+  // first, then "International Students (Foreign Nationals)" — which are
+  // not sections of their own, so the audience is tracked as we pass them.
+  let audience = opts.audience;
+
+  const normaliseLevel = (raw: string | undefined): string | undefined => {
+    const k = key(raw ?? '');
+    if (!k) return undefined;
+    if (k === 'ug' || k.includes('undergrad') || k.includes('bachelor')) return 'Undergraduate';
+    if (k === 'pg' || k.includes('postgrad') || k.includes('master')) return 'Postgraduate';
+    return raw?.trim() || undefined;
+  };
+
   for (const row of rows) {
-    if (looksLikeHeader(row, ['Programme', 'Program', 'Programe'])) continue;
-    const programmeName = cell(row, 0);
+    const lone = filled(row);
+    if (lone.length === 1) {
+      const k = key(lone[0]);
+      if (k.includes('international') || k.includes('foreignnational')) audience = 'International';
+      else if (k.includes('domestic') || k.includes('indiannational')) audience = opts.audience;
+      continue;
+    }
+
+    // A table can restart mid-section (domestic then international, say), so
+    // every header encountered re-maps the columns rather than only the first.
+    const maybeHeader = mapFeeColumns(row);
+    if (maybeHeader) { cols = maybeHeader; continue; }
+    if (!cols) continue;   // rows before any header are prose, not fees
+
+    const programmeName = cell(row, cols.programme!);
     if (!programmeName) continue;
+    // Skip a row that repeats the heading word rather than naming a course.
+    if (key(programmeName) === 'programme' || key(programmeName) === 'program') continue;
+
     out.push({
       programmeName,
-      level,
-      duration: cell(row, 1) || undefined,
-      oneTimePayment: parseMoney(cell(row, 2)),
-      annualFee: parseMoney(cell(row, 3)),
-      perSemesterFee: parseMoney(cell(row, 4)),
-      emiPerMonth: parseMoney(cell(row, 5)),
+      level:          normaliseLevel(cols.level !== undefined ? cell(row, cols.level) : undefined) ?? opts.level,
+      duration:       cols.duration    !== undefined ? cell(row, cols.duration) || undefined : undefined,
+      oneTimePayment: cols.total       !== undefined ? parseMoney(cell(row, cols.total)) : undefined,
+      annualFee:      cols.annual      !== undefined ? parseMoney(cell(row, cols.annual)) : undefined,
+      perSemesterFee: cols.semester    !== undefined ? parseMoney(cell(row, cols.semester)) : undefined,
+      emiPerMonth:    cols.emi         !== undefined ? parseMoney(cell(row, cols.emi)) : undefined,
+      eligibility:    cols.eligibility !== undefined ? cell(row, cols.eligibility) || undefined : undefined,
+      programmeUrl:   cols.url         !== undefined ? (/^https?:\/\//i.test(cell(row, cols.url)) ? cell(row, cols.url) : undefined) : undefined,
+      audience,
+      /**
+       * Read off the figures rather than assumed. Sharda prices overseas
+       * students in dollars — "$2,400" stored as rupees would quote a
+       * ₹2,400 MBA, which is both wrong and cheap enough to be believed.
+       */
+      currency: /[$]|usd/i.test(
+        [cols.total, cols.annual, cols.semester]
+          .filter((c): c is number => c !== undefined)
+          .map((c) => cell(row, c)).join(' '),
+      ) ? 'USD' : 'INR',
     });
+  }
+  return out;
+}
+
+/** "Programme | Specialization | Type" — the electives inside each course. */
+function parseSpecializations(rows: Row[]): UniversitySpecialization[] {
+  const out: UniversitySpecialization[] = [];
+  for (const row of rows) {
+    if (looksLikeHeader(row, ['Programme', 'Program', 'Programe'])) continue;
+    const programme = cell(row, 0);
+    const specialization = cell(row, 1);
+    if (!programme || !specialization) continue;
+    out.push({ programme, specialization, type: cell(row, 2) || undefined });
   }
   return out;
 }
@@ -354,13 +604,17 @@ function titleCase(text: string): string {
   return text.toLowerCase().replace(/\b[a-z]/g, (c) => c.toUpperCase());
 }
 
+function pageWarning(cellText: string): string {
+  return `The website cell reads "${cellText}", which is not a web address — a hyperlink's target is lost when a sheet is exported to CSV. Paste the full https:// URL into that cell to get a working link.`;
+}
+
 // ─── Entry point ──────────────────────────────────────────────────────────────
 
 export function parseUniversityCsv(rows: Row[]): ParsedUniversity {
   const parsed: ParsedUniversity = {
     name: '',
     accreditations: [], programmes: [], fees: [], faqs: [], partners: [],
-    faculty: [], locationStops: [], scholarships: [],
+    faculty: [], locationStops: [], scholarships: [], specializations: [],
     sectionNotes: {}, extraSections: [], warnings: [],
   };
 
@@ -369,18 +623,21 @@ export function parseUniversityCsv(rows: Row[]): ParsedUniversity {
   const sections: { id: SectionId | null; heading: string; rows: Row[] }[] = [];
   let current: { id: SectionId | null; heading: string; rows: Row[] } | null = null;
   for (const row of rows) {
-    const heading = headingOf(row);
-    if (heading) {
-      current = { id: sectionOf(heading), heading, rows: [] };
+    const candidate = headingCandidate(row);
+    const id = candidate ? sectionOf(candidate) : null;
+    if (candidate && id) {
+      current = { id, heading: candidate, rows: [] };
       sections.push(current);
       continue;
     }
+    // A numbered row naming no known section is a list item, so it belongs
+    // to the section it sits in rather than starting a new one.
     if (current) current.rows.push(row);
   }
 
   if (sections.length === 0) {
     parsed.warnings.push(
-      'No numbered sections found. The file should have headings like "1. University information" in the first column.',
+      'No recognised sections found. A university sheet needs numbered headings in the first column, starting with "1. University information".',
     );
     return parsed;
   }
@@ -395,7 +652,11 @@ export function parseUniversityCsv(rows: Row[]): ParsedUniversity {
       parsed.warnings.push(`Section "${section.heading}" was not recognised and has been stored but not displayed.`);
       continue;
     }
-    if (seen.has(section.id)) {
+    // Faculty, FAQs and partners are routinely split across two or three
+    // headings on one tab ("Core Academic Leadership", "Industry Experts",
+    // "Visiting Mentors"), so repeats are expected and merge quietly.
+    const MERGES_QUIETLY: SectionId[] = ['faculty', 'faqs', 'partners', 'fees', 'specializations'];
+    if (seen.has(section.id) && !MERGES_QUIETLY.includes(section.id)) {
       parsed.warnings.push(`Section "${section.heading}" appears more than once; the later one was merged in.`);
     }
     seen.add(section.id);
@@ -406,17 +667,16 @@ export function parseUniversityCsv(rows: Row[]): ParsedUniversity {
         const notAUrl = info._pageCellWasNotAUrl;
         delete info._pageCellWasNotAUrl;
         Object.assign(parsed, info);
-        if (notAUrl) {
-          parsed.warnings.push(
-            `University Page reads "${notAUrl}", which is not a web address — a hyperlink's target is lost when a sheet is exported to CSV. Paste the full https:// URL into that cell to get a working link.`,
-          );
-        }
+        if (notAUrl) parsed.warnings.push(pageWarning(notAUrl));
         break;
       }
       case 'accreditations': parsed.accreditations.push(...parseAccreditations(section.rows)); break;
       case 'programmes':     parsed.programmes.push(...parseProgrammes(section.rows)); break;
-      case 'ugFees':         parsed.fees.push(...parseFees(section.rows, 'Undergraduate')); break;
-      case 'pgFees':         parsed.fees.push(...parseFees(section.rows, 'Postgraduate')); break;
+      case 'ugFees':         parsed.fees.push(...parseFees(section.rows, { level: 'Undergraduate', audience: 'Domestic' })); break;
+      case 'pgFees':         parsed.fees.push(...parseFees(section.rows, { level: 'Postgraduate',  audience: 'Domestic' })); break;
+      case 'fees':           parsed.fees.push(...parseFees(section.rows, { audience: 'Domestic' })); break;
+      case 'intlFees':       parsed.fees.push(...parseFees(section.rows, { audience: 'International' })); break;
+      case 'specializations': parsed.specializations.push(...parseSpecializations(section.rows)); break;
       case 'faqs':           parsed.faqs.push(...parseFaqs(section.rows)); break;
       case 'partners':       parsed.partners.push(...parsePartners(section.rows)); break;
       case 'faculty':        parsed.faculty.push(...parseFaculty(section.rows)); break;
@@ -431,7 +691,23 @@ export function parseUniversityCsv(rows: Row[]): ParsedUniversity {
   }
 
   if (!parsed.name) {
-    parsed.warnings.push('No "University Name" found in the University information section.');
+    /**
+     * Some tabs open with the details and only start numbering at the second
+     * section — Shoolini's name, address and phone all sit above its first
+     * heading, in a block titled nothing at all. Rather than lose the
+     * university, sweep every row for the same labels as a last resort.
+     */
+    const swept = infoFromPairs(collectPairs(rows));
+    if (swept.name) {
+      const notAUrl = swept._pageCellWasNotAUrl;
+      delete swept._pageCellWasNotAUrl;
+      Object.assign(parsed, swept);
+      if (notAUrl) parsed.warnings.push(pageWarning(notAUrl));
+    }
+  }
+
+  if (!parsed.name) {
+    parsed.warnings.push('No university name found. The sheet needs a "University Name" or "Institution Name" row.');
   }
 
   return parsed;

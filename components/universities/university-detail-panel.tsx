@@ -35,13 +35,23 @@ export interface UniversityDetail {
   sectionNotes?: Record<string, string[]> | null;
   accreditations: { id: string; body: string; status?: string | null }[];
   programmes: { id: string; code: string; fullName?: string | null; level?: string | null; durationMonths?: number | null; specializations?: number | null }[];
-  programmeFees: { id: string; programmeName: string; level: string; duration?: string | null; oneTimePayment?: number | null; annualFee?: number | null; perSemesterFee?: number | null; emiPerMonth?: number | null }[];
+  specializations?: { programme: string; specialization: string; type?: string }[] | null;
+  programmeFees: { id: string; programmeName: string; level?: string | null; duration?: string | null; oneTimePayment?: number | null; annualFee?: number | null; perSemesterFee?: number | null; emiPerMonth?: number | null; eligibility?: string | null; programmeUrl?: string | null; audience: string; currency: string }[];
 }
 
-/** Indian digit grouping, which is what every figure in these sheets uses. */
-export function formatRupees(n: number | null | undefined): string {
+/**
+ * A fee, in the currency the sheet quoted it in.
+ *
+ * Indian grouping for rupees, which is what the sheets use. The currency is
+ * not decorative: several universities price overseas students in dollars,
+ * and rendering "$2,400" as "₹2,400" would understate an MBA by a factor of
+ * eighty.
+ */
+export function formatRupees(n: number | null | undefined, currency = 'INR'): string {
   if (n === null || n === undefined) return '—';
-  return `₹${n.toLocaleString('en-IN')}`;
+  return currency === 'USD'
+    ? `$${n.toLocaleString('en-US')}`
+    : `₹${n.toLocaleString('en-IN')}`;
 }
 
 function Section({
@@ -72,6 +82,7 @@ function FeeTable({ rows }: { rows: UniversityDetail['programmeFees'] }) {
   // rather than printed as a column of dashes.
   const has = {
     duration:  rows.some((r) => r.duration),
+    eligibility: rows.some((r) => r.eligibility),
     oneTime:   rows.some((r) => r.oneTimePayment != null),
     annual:    rows.some((r) => r.annualFee != null),
     semester:  rows.some((r) => r.perSemesterFee != null),
@@ -88,17 +99,23 @@ function FeeTable({ rows }: { rows: UniversityDetail['programmeFees'] }) {
             {has.annual   && <th className="whitespace-nowrap px-3 py-2 text-right">Annual</th>}
             {has.semester && <th className="whitespace-nowrap px-3 py-2 text-right">Per Semester</th>}
             {has.emi      && <th className="whitespace-nowrap px-3 py-2 text-right">EMI / month</th>}
+            {has.eligibility && <th className="px-3 py-2 text-left">Eligibility</th>}
           </tr>
         </thead>
         <tbody>
           {rows.map((r) => (
             <tr key={r.id} className="border-b border-border/40 last:border-0 hover:bg-muted/20">
-              <td className="px-3 py-2 font-medium">{r.programmeName}</td>
+              <td className="px-3 py-2 font-medium">
+                {r.programmeUrl
+                  ? <a href={r.programmeUrl} target="_blank" rel="noopener noreferrer" className="hover:underline">{r.programmeName}</a>
+                  : r.programmeName}
+              </td>
               {has.duration && <td className="whitespace-nowrap px-3 py-2 text-xs text-muted-foreground">{r.duration ?? '—'}</td>}
-              {has.oneTime  && <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{formatRupees(r.oneTimePayment)}</td>}
-              {has.annual   && <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-muted-foreground">{formatRupees(r.annualFee)}</td>}
-              {has.semester && <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-muted-foreground">{formatRupees(r.perSemesterFee)}</td>}
-              {has.emi      && <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-muted-foreground">{r.emiPerMonth != null ? `${formatRupees(r.emiPerMonth)}/mo` : '—'}</td>}
+              {has.oneTime  && <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{formatRupees(r.oneTimePayment, r.currency)}</td>}
+              {has.annual   && <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-muted-foreground">{formatRupees(r.annualFee, r.currency)}</td>}
+              {has.semester && <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-muted-foreground">{formatRupees(r.perSemesterFee, r.currency)}</td>}
+              {has.emi      && <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-muted-foreground">{r.emiPerMonth != null ? `${formatRupees(r.emiPerMonth, r.currency)}/mo` : '—'}</td>}
+              {has.eligibility && <td className="px-3 py-2 text-xs text-muted-foreground">{r.eligibility ?? '—'}</td>}
             </tr>
           ))}
         </tbody>
@@ -153,9 +170,25 @@ export function UniversityDetailPanel({
     staleTime: 5 * 60 * 1000,
   });
 
-  const ug = (data?.programmeFees ?? []).filter((f) => f.level === 'Undergraduate');
-  const pg = (data?.programmeFees ?? []).filter((f) => f.level === 'Postgraduate');
-  const other = (data?.programmeFees ?? []).filter((f) => f.level !== 'Undergraduate' && f.level !== 'Postgraduate');
+  // Audience first: a domestic and an overseas price for the same course are
+  // different answers to the same question, and interleaving them is how
+  // somebody quotes the wrong one.
+  const feeGroups = (() => {
+    const all = data?.programmeFees ?? [];
+    const groups: { label: string; rows: typeof all }[] = [];
+    for (const audience of ['Domestic', 'International']) {
+      const inAudience = all.filter((f) => f.audience === audience);
+      if (inAudience.length === 0) continue;
+      const prefix = audience === 'International' ? 'International · ' : '';
+      for (const level of ['Undergraduate', 'Postgraduate']) {
+        const rows = inAudience.filter((f) => f.level === level);
+        if (rows.length) groups.push({ label: prefix + level, rows });
+      }
+      const rest = inAudience.filter((f) => f.level !== 'Undergraduate' && f.level !== 'Postgraduate');
+      if (rest.length) groups.push({ label: prefix ? `${prefix}All programmes` : 'All programmes', rows: rest });
+    }
+    return groups;
+  })();
 
   const scholarshipGroups = Array.from(new Set((data?.scholarships ?? []).map((s) => s.group)));
 
@@ -274,28 +307,36 @@ export function UniversityDetailPanel({
               </Section>
             )}
 
+            {/* ── Specialisations ── */}
+            {(data.specializations?.length ?? 0) > 0 && (
+              <Section title="Specialisations" icon={GraduationCap} count={data.specializations!.length}>
+                <div className="space-y-3">
+                  {Array.from(new Set(data.specializations!.map((x) => x.programme))).map((programme) => (
+                    <div key={programme}>
+                      <p className="mb-1.5 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">{programme}</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {data.specializations!.filter((x) => x.programme === programme).map((x, i) => (
+                          <span key={i} title={x.type} className="rounded-full border border-border/60 bg-muted/40 px-2.5 py-1 text-xs font-medium">
+                            {x.specialization}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </Section>
+            )}
+
             {/* ── Fees ── */}
             {data.programmeFees.length > 0 && (
               <Section title="Programme Fees" icon={Wallet} count={data.programmeFees.length}>
                 <div className="space-y-5">
-                  {ug.length > 0 && (
-                    <div>
-                      <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Undergraduate</p>
-                      <FeeTable rows={ug} />
+                  {feeGroups.map((g) => (
+                    <div key={g.label}>
+                      <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">{g.label}</p>
+                      <FeeTable rows={g.rows} />
                     </div>
-                  )}
-                  {pg.length > 0 && (
-                    <div>
-                      <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Postgraduate</p>
-                      <FeeTable rows={pg} />
-                    </div>
-                  )}
-                  {other.length > 0 && (
-                    <div>
-                      <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Other</p>
-                      <FeeTable rows={other} />
-                    </div>
-                  )}
+                  ))}
                 </div>
               </Section>
             )}

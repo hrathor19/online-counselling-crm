@@ -33,7 +33,7 @@ export async function GET() {
         distinct: ['body'], select: { body: true }, orderBy: { body: 'asc' },
       }),
       prisma.universityProgrammeFee.aggregate({
-        where: { university: { isActive: true }, oneTimePayment: { not: null } },
+        where: { university: { isActive: true }, oneTimePayment: { not: null }, currency: 'INR' },
         _min: { oneTimePayment: true }, _max: { oneTimePayment: true },
       }),
     ]);
