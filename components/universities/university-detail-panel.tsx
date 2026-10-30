@@ -66,8 +66,11 @@ function Section({
   return (
     <section
       className={cn(
-        'border-b border-border/40 px-5 py-6 last:border-0 sm:px-8',
-        tone === 'dark' ? 'bg-muted/25' : 'bg-transparent',
+        // Alternating bands with a visible rule between them. On a dark
+        // panel a 40%-opacity border and a 25%-opacity tint both disappear,
+        // which is why the sections ran into one another as one dark sheet.
+        'border-t border-white/10 px-5 py-7 first:border-t-0 sm:px-8',
+        tone === 'dark' ? 'bg-white/[0.04]' : 'bg-transparent',
       )}
       /**
        * Off-screen sections are skipped by the browser entirely — no layout,
@@ -84,9 +87,9 @@ function Section({
         <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10 ring-1 ring-inset ring-primary/15">
           <Icon className="h-3.5 w-3.5 text-primary" />
         </span>
-        <h3 className="text-[15px] font-bold tracking-tight">{title}</h3>
+        <h3 className="text-base font-bold tracking-tight text-slate-100">{title}</h3>
         {count !== undefined && (
-          <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-bold text-muted-foreground">{count}</span>
+          <span className="rounded-full bg-white/10 px-2 py-0.5 text-[11px] font-bold text-slate-300 ring-1 ring-inset ring-white/10">{count}</span>
         )}
       </div>
       {children}
@@ -145,10 +148,10 @@ function FeeTable({ rows }: { rows: UniversityDetail['programmeFees'] }) {
     emi:       rows.some((r) => r.emiPerMonth != null),
   };
   return (
-    <div className="overflow-x-auto rounded-xl border border-border/50 bg-background/70 shadow-sm">
+    <div className="overflow-x-auto rounded-xl border border-white/10 bg-white/[0.04] shadow-sm">
       <table className="w-full border-collapse text-sm">
         <thead>
-          <tr className="border-b border-border/60 bg-muted/60 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+          <tr className="border-b border-white/10 bg-white/[0.06] text-[10px] font-bold uppercase tracking-wider text-slate-400">
             <th className="px-3 py-2 text-left">Programme</th>
             {has.duration && <th className="whitespace-nowrap px-3 py-2 text-left">Duration</th>}
             {has.oneTime  && <th className="whitespace-nowrap px-3 py-2 text-right">One Time</th>}
@@ -160,7 +163,7 @@ function FeeTable({ rows }: { rows: UniversityDetail['programmeFees'] }) {
         </thead>
         <tbody>
           {rows.slice(0, limit).map((r) => (
-            <tr key={r.id} className="border-b border-border/40 last:border-0 hover:bg-muted/20">
+            <tr key={r.id} className="border-b border-white/[0.07] last:border-0 hover:bg-white/[0.04]">
               <td className="px-3 py-2 font-medium">
                 {r.programmeUrl
                   ? <a href={r.programmeUrl} target="_blank" rel="noopener noreferrer" className="hover:underline">{r.programmeName}</a>
@@ -189,10 +192,85 @@ function FeeTable({ rows }: { rows: UniversityDetail['programmeFees'] }) {
   );
 }
 
+/**
+ * One programme, with its specialisations behind the count.
+ *
+ * The count was a label and the names lived in a section of their own
+ * further down the panel, which meant reading "9 specialisations" and then
+ * scrolling away to find out what they were. They are the same fact, so
+ * they are in the same place: the capsule opens the list.
+ *
+ * It is only a button when there are names to show. Several sheets give a
+ * count with no accompanying list, and a control that does nothing when
+ * pressed is worse than plain text.
+ */
+function ProgrammeCard({
+  programme, specialisations,
+}: {
+  programme: UniversityDetail['programmes'][number];
+  specialisations: { specialization: string; type?: string }[];
+}) {
+  const [open, setOpen] = useState(false);
+  const count = programme.specializations ?? specialisations.length;
+  const canOpen = specialisations.length > 0;
+
+  return (
+    <div className="rounded-xl border border-white/10 bg-white/[0.06] p-3.5 shadow-sm">
+      <p className="text-sm font-bold">{programme.code}</p>
+      {programme.fullName && <p className="text-xs text-muted-foreground">{programme.fullName}</p>}
+
+      <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
+        {count > 0 && (
+          canOpen ? (
+            <button
+              type="button"
+              onClick={() => setOpen((v) => !v)}
+              aria-expanded={open}
+              className="inline-flex items-center gap-1 rounded-full bg-primary/15 px-2 py-0.5 font-semibold text-primary ring-1 ring-inset ring-primary/25 transition-colors hover:bg-primary/25"
+            >
+              {count} specialisation{count === 1 ? '' : 's'}
+              <ChevronDown className={cn('h-3 w-3 transition-transform duration-200', open && 'rotate-180')} />
+            </button>
+          ) : (
+            <span className="rounded-full bg-primary/10 px-2 py-0.5 font-semibold text-primary">
+              {count} specialisation{count === 1 ? '' : 's'}
+            </span>
+          )
+        )}
+        {programme.level && <span className="text-muted-foreground">{programme.level}</span>}
+        {programme.durationMonths != null && <span className="text-muted-foreground">· {programme.durationMonths} months</span>}
+      </div>
+
+      {/* Same grid-track open as the FAQs: no height to measure, so no
+          layout pass per frame. */}
+      <div
+        className={cn(
+          'grid transition-[grid-template-rows] duration-200 ease-out motion-reduce:transition-none',
+          open ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]',
+        )}
+      >
+        <div className="overflow-hidden">
+          <div className="mt-2.5 flex flex-wrap gap-1.5 border-t border-white/10 pt-2.5">
+            {specialisations.map((x, i) => (
+              <span
+                key={i}
+                title={x.type}
+                className="rounded-full border border-white/10 bg-white/[0.06] px-2.5 py-1 text-xs font-medium"
+              >
+                {x.specialization}
+              </span>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function Faq({ item }: { item: { question: string; answers: string[] } }) {
   const [open, setOpen] = useState(false);
   return (
-    <div className="rounded-xl border border-border/50 bg-background/70 shadow-sm">
+    <div className="rounded-xl border border-white/10 bg-white/[0.04] shadow-sm">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
@@ -439,7 +517,7 @@ export function UniversityDetailPanel({
                   {data.accreditations.map((a) => (
                     <div
                       key={a.id}
-                      className="rounded-xl border border-border/50 bg-gradient-to-br from-background/90 to-muted/30 px-3.5 py-3 shadow-sm ring-1 ring-inset ring-white/40 dark:ring-white/5"
+                      className="rounded-xl border border-white/10 bg-white/[0.06] px-3.5 py-3 shadow-sm"
                     >
                       <p className="text-sm font-bold leading-snug">{a.body}</p>
                       {a.status && <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{a.status}</p>}
@@ -452,45 +530,20 @@ export function UniversityDetailPanel({
             {/* ── Programmes ── */}
             {data.programmes.length > 0 && (
               <Section title="Our Programmes" icon={GraduationCap} count={data.programmes.length} tone="dark">
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {/* items-start so a card that has been opened grows on its
+                    own instead of stretching the one beside it into a tall
+                    empty box. */}
+                <div className="grid grid-cols-1 items-start gap-2 sm:grid-cols-2">
                   {data.programmes.map((p) => (
-                    <div key={p.id} className="rounded-xl border border-border/50 bg-gradient-to-br from-background/90 to-muted/30 p-3.5 shadow-sm ring-1 ring-inset ring-white/40 dark:ring-white/5">
-                      <p className="text-sm font-bold">{p.code}</p>
-                      {p.fullName && <p className="text-xs text-muted-foreground">{p.fullName}</p>}
-                      <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
-                        {p.specializations != null && (
-                          <span className="rounded-full bg-primary/10 px-2 py-0.5 font-semibold text-primary">
-                            {p.specializations} specialisation{p.specializations === 1 ? '' : 's'}
-                          </span>
-                        )}
-                        {p.level && <span className="text-muted-foreground">{p.level}</span>}
-                        {p.durationMonths != null && <span className="text-muted-foreground">· {p.durationMonths} months</span>}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </Section>
-            )}
-
-            {/* ── Specialisations ── */}
-            {(data.specializations?.length ?? 0) > 0 && (
-              <Section title="Specialisations" icon={GraduationCap} count={data.specializations!.length}>
-                <div className="space-y-3">
-                  {Array.from(new Set(data.specializations!.map((x) => x.programme))).map((programme) => (
-                    <div key={programme}>
-                      <p className="mb-1.5 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">{programme}</p>
-                      <ShowMore
-                        items={data.specializations!.filter((x) => x.programme === programme)}
-                        initial={10}
-                        label="specialisations"
-                        className="flex flex-wrap gap-1.5"
-                        render={(x, i) => (
-                          <span key={i} title={x.type} className="rounded-full border border-border/60 bg-muted/40 px-2.5 py-1 text-xs font-medium">
-                            {x.specialization}
-                          </span>
-                        )}
-                      />
-                    </div>
+                    <ProgrammeCard
+                      key={p.id}
+                      programme={p}
+                      // Matched on the programme code, which is what the
+                      // specialisation rows name their programme by.
+                      specialisations={(data.specializations ?? []).filter(
+                        (x) => x.programme.trim().toLowerCase() === p.code.trim().toLowerCase(),
+                      )}
+                    />
                   ))}
                 </div>
               </Section>
@@ -520,7 +573,7 @@ export function UniversityDetailPanel({
                   {scholarshipGroups.map((group) => (
                     <div key={group}>
                       <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">{group}</p>
-                      <div className="overflow-hidden rounded-xl border border-border/50 bg-background/70 shadow-sm">
+                      <div className="overflow-hidden rounded-xl border border-white/10 bg-white/[0.04] shadow-sm">
                         {data.scholarships!.filter((s) => s.group === group).map((s, i) => (
                           // A grid, not a fixed-width label: these cells are
                           // "20%" on one tab and "0% Interest EMI / Monthly
@@ -566,7 +619,7 @@ export function UniversityDetailPanel({
                   label="faculty"
                   className="space-y-2"
                   render={(f, i) => (
-                    <div key={i} className="rounded-xl border border-border/50 bg-background/70 p-3.5 shadow-sm">
+                    <div key={i} className="rounded-xl border border-white/10 bg-white/[0.04] p-3.5 shadow-sm">
                       <div className="flex flex-wrap items-baseline gap-x-2">
                         <p className="text-sm font-bold">{f.name}</p>
                         {f.designation && <p className="text-xs text-primary">{f.designation}</p>}
@@ -592,7 +645,7 @@ export function UniversityDetailPanel({
             {/* ── Getting there ── */}
             {(data.locationStops?.length ?? 0) > 0 && (
               <Section title="Getting There" icon={Train} count={data.locationStops!.length} tone="dark">
-                <div className="overflow-hidden rounded-xl border border-border/50 bg-background/70 shadow-sm">
+                <div className="overflow-hidden rounded-xl border border-white/10 bg-white/[0.04] shadow-sm">
                   {data.locationStops!.map((l, i) => (
                     <div
                       key={i}
