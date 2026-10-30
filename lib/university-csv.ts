@@ -108,9 +108,9 @@ function key(text: string): string {
  * in — which is what those list items are.
  */
 function headingCandidate(row: Row): string | null {
-  const cells = filled(row);
-  if (cells.length !== 1) return null;
-  const m = /^(\d{1,2})\s*[.)]?\s*(.+)$/.exec(cells[0]);
+  const first = cell(row, 0);
+  if (!first) return null;
+  const m = /^(\d{1,2})\s*[.)]?\s*(.+)$/.exec(first);
   if (!m) return null;
   const title = m[2].trim();
   if (/^(th|st|nd|rd)\b/i.test(title)) return null;   // "10th & 12th Mark sheets"
@@ -175,7 +175,10 @@ function looksLikeHeader(row: Row, expected: string[]): boolean {
  * called "Programmes Summary".
  */
 function isSubTitle(row: Row): boolean {
-  return filled(row).length === 1;
+  const cells = filled(row);
+  // A merged sub-title repeats across its columns for the same reason a
+  // merged heading does.
+  return cells.length > 0 && new Set(cells).size === 1;
 }
 
 /**
@@ -661,6 +664,23 @@ function parseScholarships(rows: Row[]): { rows: UniversityScholarshipRow[]; not
     if (cells.length === 1) { notes.push(cells[0]); continue; }
     const first = cell(row, 0);
     const second = cell(row, 1);
+
+    /**
+     * A table that belongs to something else ends this section.
+     *
+     * MITSDE follows its scholarships with a "Program | Specialization |
+     * Source" table carrying no heading of its own, and without this every
+     * row of it was filed as a scholarship — thirty-four of them, against
+     * the six the university actually offers. A header names columns and
+     * states no figure, which is what separates it from a real row.
+     */
+    if (cells.length >= 2 && !/\d/.test(cells.join(' '))
+        && looksLikeHeader(row, ['program', 'programme', 'programe', 'specializ', 'specialis', 'course', 'name'])) {
+      break;
+    }
+    // A row whose first cell is blank is a continuation of some other
+    // table's merged first column, not a scholarship.
+    if (!first) continue;
 
     /**
      * A header row names the group the rows under it belong to.
