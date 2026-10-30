@@ -45,12 +45,6 @@ interface ImportResult {
   warnings?: string[];
 }
 
-const SECTIONS = [
-  '1. University information', '2. Accreditations and recognitions', '3. Programmes summary',
-  '4. Frequently asked Questions', '5. Company Partners', '6. UnderGraduate Programs',
-  '7. PostGraduate Programs', '8. Top Faculties', '9. Location', '10. Scholarship',
-];
-
 export default function ManageUniversitiesPage() {
   const { toast } = useToast();
   const qc = useQueryClient();
@@ -249,8 +243,9 @@ export default function ManageUniversitiesPage() {
         <Upload className="mx-auto mb-2 h-7 w-7 text-muted-foreground" />
         <p className="text-sm font-semibold">Or upload a single university&apos;s CSV</p>
         <p className="mx-auto mt-1 max-w-xl text-xs text-muted-foreground">
-          One file per university, laid out in the numbered sections below. Uploading a university
-          that is already here replaces its profile — that is how you publish updated fees.
+          One file per university, laid out in numbered sections — download the sample to see
+          them. Uploading a university that is already here replaces its profile, which is how
+          you publish updated fees.
         </p>
         <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
           <button
@@ -280,19 +275,10 @@ export default function ManageUniversitiesPage() {
           </a>
         </div>
 
-        <details className="mx-auto mt-4 max-w-xl text-left">
-          <summary className="cursor-pointer text-xs font-semibold text-muted-foreground hover:text-foreground">
-            What should the file contain?
-          </summary>
-          <ul className="mt-2 space-y-0.5 text-xs text-muted-foreground">
-            {SECTIONS.map((s) => <li key={s}>· {s}</li>)}
-          </ul>
-          <p className="mt-2 text-xs text-muted-foreground">
-            Every section is optional except the university&apos;s name — a sheet missing faculty or
-            scholarships imports fine and those parts simply do not appear. The sample file above
-            has all of them filled in with example values.
-          </p>
-        </details>
+        <p className="mx-auto mt-3 max-w-xl text-xs text-muted-foreground">
+          Every section is optional except the university&apos;s name — a sheet missing faculty or
+          scholarships imports fine and those parts simply do not appear.
+        </p>
       </div>
 
       {/* ── What the last import did ── */}
