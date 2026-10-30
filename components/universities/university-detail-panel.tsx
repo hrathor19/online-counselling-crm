@@ -65,7 +65,10 @@ function Section({
 }) {
   return (
     <section
-      className={cn('px-5 py-6 sm:px-7', tone === 'dark' ? 'bg-muted/40' : 'bg-background')}
+      className={cn(
+        'border-b border-border/40 px-5 py-6 last:border-0 sm:px-8',
+        tone === 'dark' ? 'bg-muted/25' : 'bg-transparent',
+      )}
       /**
        * Off-screen sections are skipped by the browser entirely — no layout,
        * no paint — until they scroll near the viewport. These profiles are
@@ -78,10 +81,12 @@ function Section({
       style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 420px' }}
     >
       <div className="mb-4 flex items-center gap-2">
-        <Icon className="h-4 w-4 text-primary" />
-        <h3 className="text-base font-bold tracking-tight">{title}</h3>
+        <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10 ring-1 ring-inset ring-primary/15">
+          <Icon className="h-3.5 w-3.5 text-primary" />
+        </span>
+        <h3 className="text-[15px] font-bold tracking-tight">{title}</h3>
         {count !== undefined && (
-          <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-bold text-primary">{count}</span>
+          <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-bold text-muted-foreground">{count}</span>
         )}
       </div>
       {children}
@@ -140,7 +145,7 @@ function FeeTable({ rows }: { rows: UniversityDetail['programmeFees'] }) {
     emi:       rows.some((r) => r.emiPerMonth != null),
   };
   return (
-    <div className="overflow-x-auto rounded-lg border border-border/60">
+    <div className="overflow-x-auto rounded-xl border border-border/50 bg-background/70 shadow-sm">
       <table className="w-full border-collapse text-sm">
         <thead>
           <tr className="border-b border-border/60 bg-muted/60 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
@@ -187,7 +192,7 @@ function FeeTable({ rows }: { rows: UniversityDetail['programmeFees'] }) {
 function Faq({ item }: { item: { question: string; answers: string[] } }) {
   const [open, setOpen] = useState(false);
   return (
-    <div className="rounded-lg border border-border/60 bg-background">
+    <div className="rounded-xl border border-border/50 bg-background/70 shadow-sm">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
@@ -231,7 +236,22 @@ export function UniversityDetailPanel({
    * same work but nobody is watching an animation while it happens.
    */
   const [settled, setSettled] = useState(false);
-  useEffect(() => { setSettled(false); }, [universityId]);
+  /**
+   * The frost, switched on a beat after the content mounts.
+   *
+   * Both are expensive and both used to happen on the same frame the slide
+   * ended — a thousand nodes laid out while a backdrop-filter was turned on
+   * over a 1040px panel, which cost more together than either did alone.
+   * Separating them by a frame or two splits the work across frames nobody
+   * is watching an animation in.
+   */
+  const [glass, setGlass] = useState(false);
+  useEffect(() => { setSettled(false); setGlass(false); }, [universityId]);
+  useEffect(() => {
+    if (!settled) return;
+    const t = setTimeout(() => setGlass(true), 160);
+    return () => clearTimeout(t);
+  }, [settled]);
 
   const { data, isLoading, isError } = useQuery<UniversityDetail>({
     queryKey: ['university', universityId],
@@ -273,7 +293,7 @@ export function UniversityDetailPanel({
         // No backdrop-blur: blurring the whole viewport is repainted every
         // frame of the slide, and on a throttled machine that alone cost
         // more than the panel it was decorating.
-        className="fixed inset-0 z-30 bg-black/40"
+        className="fixed inset-0 z-30 bg-slate-950/50"
       />
       <motion.aside
         initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }}
@@ -283,7 +303,24 @@ export function UniversityDetailPanel({
         transition={{ type: 'tween', ease: [0.22, 1, 0.36, 1], duration: 0.26 }}
         onAnimationComplete={() => setSettled(true)}
         style={{ willChange: 'transform' }}
-        className="fixed right-0 top-0 z-40 flex h-dvh w-full max-w-[780px] flex-col border-l border-border bg-background shadow-2xl"
+        className={cn(
+          'fixed right-0 top-0 z-40 flex h-dvh w-full flex-col border-l shadow-2xl',
+          // Wide enough for a two-column grid and a fee table without
+          // wrapping every heading, and still short of the full screen so
+          // the list stays visible behind it.
+          'max-w-[min(1040px,94vw)]',
+          'border-white/15 dark:border-white/10',
+          /**
+           * The frost is switched on only once the panel has stopped
+           * moving. backdrop-filter over an area this size is repainted
+           * every frame, and animating it is exactly what made this panel
+           * stutter before — so it slides on an opaque surface and becomes
+           * glass on arrival, which is when anyone is looking at it.
+           */
+          glass
+            ? 'bg-background/80 supports-[backdrop-filter]:bg-background/65 supports-[backdrop-filter]:backdrop-blur-2xl'
+            : 'bg-background',
+        )}
         role="dialog"
         aria-label={data?.name ?? 'University details'}
       >
@@ -303,11 +340,14 @@ export function UniversityDetailPanel({
         {data && (
           <div className="flex-1 overflow-y-auto">
             {/* ── Hero ── */}
-            <div className="relative bg-gradient-to-br from-primary/90 via-primary to-primary/70 px-5 pb-6 pt-5 text-primary-foreground sm:px-7">
+            <div className="relative overflow-hidden bg-gradient-to-br from-primary via-primary to-primary/75 px-5 pb-7 pt-5 text-primary-foreground sm:px-8">
+              {/* A broad highlight across the top-left, which is what gives
+                  the header its sense of a lit surface rather than a fill. */}
+              <div aria-hidden className="pointer-events-none absolute -left-24 -top-32 h-64 w-96 rounded-full bg-white/15 blur-3xl" />
               <button
                 onClick={onClose}
                 aria-label="Close"
-                className="absolute right-4 top-4 flex h-8 w-8 items-center justify-center rounded-full bg-black/20 transition-colors hover:bg-black/35"
+                className="absolute right-4 top-4 z-10 flex h-9 w-9 items-center justify-center rounded-full bg-white/15 ring-1 ring-inset ring-white/25 backdrop-blur transition-colors hover:bg-white/25"
               >
                 <X className="h-4 w-4" />
               </button>
@@ -325,14 +365,14 @@ export function UniversityDetailPanel({
                 )}
               </div>
 
-              <h2 className="pr-10 text-2xl font-bold tracking-tight">{data.name}</h2>
+              <h2 className="relative pr-12 text-[26px] font-bold leading-tight tracking-tight">{data.name}</h2>
               {data.address && (
                 <p className="mt-1.5 flex items-start gap-1.5 text-sm text-primary-foreground/85">
                   <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0" />{data.address}
                 </p>
               )}
 
-              <div className="mt-4 flex flex-wrap gap-x-6 gap-y-2 border-t border-white/20 pt-3 text-sm">
+              <div className="relative mt-4 flex flex-wrap gap-x-6 gap-y-2 border-t border-white/25 pt-3 text-sm">
                 {data.email && (
                   <a href={`mailto:${data.email}`} className="inline-flex items-center gap-1.5 hover:underline">
                     <Mail className="h-3.5 w-3.5" />{data.email}
@@ -359,11 +399,14 @@ export function UniversityDetailPanel({
             {/* ── Accreditations ── */}
             {data.accreditations.length > 0 && (
               <Section title="Accreditations & Recognitions" icon={Award} count={data.accreditations.length}>
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                   {data.accreditations.map((a) => (
-                    <div key={a.id} className="rounded-lg border border-border/60 bg-background px-3 py-2">
-                      <p className="text-sm font-bold">{a.body}</p>
-                      {a.status && <p className="text-xs text-muted-foreground">{a.status}</p>}
+                    <div
+                      key={a.id}
+                      className="rounded-xl border border-border/50 bg-gradient-to-br from-background/90 to-muted/30 px-3.5 py-3 shadow-sm ring-1 ring-inset ring-white/40 dark:ring-white/5"
+                    >
+                      <p className="text-sm font-bold leading-snug">{a.body}</p>
+                      {a.status && <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{a.status}</p>}
                     </div>
                   ))}
                 </div>
@@ -375,7 +418,7 @@ export function UniversityDetailPanel({
               <Section title="Our Programmes" icon={GraduationCap} count={data.programmes.length} tone="dark">
                 <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                   {data.programmes.map((p) => (
-                    <div key={p.id} className="rounded-lg border border-border/60 bg-background p-3">
+                    <div key={p.id} className="rounded-xl border border-border/50 bg-gradient-to-br from-background/90 to-muted/30 p-3.5 shadow-sm ring-1 ring-inset ring-white/40 dark:ring-white/5">
                       <p className="text-sm font-bold">{p.code}</p>
                       {p.fullName && <p className="text-xs text-muted-foreground">{p.fullName}</p>}
                       <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
@@ -441,11 +484,19 @@ export function UniversityDetailPanel({
                   {scholarshipGroups.map((group) => (
                     <div key={group}>
                       <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">{group}</p>
-                      <div className="overflow-hidden rounded-lg border border-border/60 bg-background">
+                      <div className="overflow-hidden rounded-xl border border-border/50 bg-background/70 shadow-sm">
                         {data.scholarships!.filter((s) => s.group === group).map((s, i) => (
-                          <div key={i} className="flex gap-3 border-b border-border/40 px-3 py-2 last:border-0">
-                            <span className="w-20 shrink-0 text-sm font-bold text-primary">{s.credit}</span>
-                            <span className="text-sm text-muted-foreground">{s.eligibility}</span>
+                          // A grid, not a fixed-width label: these cells are
+                          // "20%" on one tab and "0% Interest EMI / Monthly
+                          // Payment Options" on another, and an 80px box
+                          // turned the long ones into a column of single
+                          // words.
+                          <div
+                            key={i}
+                            className="grid grid-cols-1 gap-x-4 gap-y-1 border-b border-border/40 px-3.5 py-2.5 last:border-0 sm:grid-cols-[minmax(0,14rem)_1fr]"
+                          >
+                            <span className="text-sm font-bold leading-snug text-primary">{s.credit}</span>
+                            <span className="text-sm leading-relaxed text-muted-foreground">{s.eligibility}</span>
                           </div>
                         ))}
                       </div>
@@ -479,7 +530,7 @@ export function UniversityDetailPanel({
                   label="faculty"
                   className="space-y-2"
                   render={(f, i) => (
-                    <div key={i} className="rounded-lg border border-border/60 bg-background p-3">
+                    <div key={i} className="rounded-xl border border-border/50 bg-background/70 p-3.5 shadow-sm">
                       <div className="flex flex-wrap items-baseline gap-x-2">
                         <p className="text-sm font-bold">{f.name}</p>
                         {f.designation && <p className="text-xs text-primary">{f.designation}</p>}
@@ -505,12 +556,20 @@ export function UniversityDetailPanel({
             {/* ── Getting there ── */}
             {(data.locationStops?.length ?? 0) > 0 && (
               <Section title="Getting There" icon={Train} count={data.locationStops!.length} tone="dark">
-                <div className="overflow-hidden rounded-lg border border-border/60 bg-background">
+                <div className="overflow-hidden rounded-xl border border-border/50 bg-background/70 shadow-sm">
                   {data.locationStops!.map((l, i) => (
-                    <div key={i} className="flex flex-wrap items-baseline gap-x-3 border-b border-border/40 px-3 py-2 last:border-0">
-                      <span className="w-28 shrink-0 text-xs font-bold uppercase tracking-wider text-muted-foreground">{l.transportType}</span>
-                      <span className="text-sm">{l.nearest ?? '—'}</span>
-                      {l.distance && <span className="ml-auto text-xs text-muted-foreground">{l.distance}</span>}
+                    <div
+                      key={i}
+                      className="grid grid-cols-1 gap-x-4 gap-y-1 border-b border-border/40 px-3.5 py-2.5 last:border-0 sm:grid-cols-[minmax(0,11rem)_1fr_auto]"
+                    >
+                      <span className="text-xs font-bold uppercase leading-snug tracking-wider text-muted-foreground">{l.transportType}</span>
+                      <span className="text-sm leading-relaxed">{l.nearest ?? '—'}</span>
+                      {/* A lone dash or "N/A" is the sheet's way of saying
+                          there is no distance for this row — printing it puts
+                          a stray mark in the corner of the campus address. */}
+                      {l.distance && !/^(—|-|–|n\/?a)$/i.test(l.distance.trim())
+                        ? <span className="whitespace-nowrap text-xs text-muted-foreground sm:text-right">{l.distance}</span>
+                        : <span />}
                     </div>
                   ))}
                 </div>

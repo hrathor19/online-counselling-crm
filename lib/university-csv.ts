@@ -636,10 +636,28 @@ function parseScholarships(rows: Row[]): { rows: UniversityScholarshipRow[]; not
     if (cells.length === 1) { notes.push(cells[0]); continue; }
     const first = cell(row, 0);
     const second = cell(row, 1);
-    // A header row names the group: its second cell is the criteria column
-    // and its first carries no figure.
-    if (key(second).includes('eligibility') || key(second).includes('criteria')) {
-      group = /^[A-Z\s]+$/.test(first) ? titleCase(first) : first;
+
+    /**
+     * A header row names the group the rows under it belong to.
+     *
+     * Recognised from either side, because the tabs head this table
+     * differently: "SCHOLARSHIP CREDIT | ELIGIBILITY CRITERIA" on some,
+     * "Feature / Payment Option | Details" on others. Matching only the
+     * right-hand column published AMU's header as a scholarship called
+     * "Feature / Payment Option" worth "Details".
+     */
+    const secondIsLabel = ['eligibility', 'criteria', 'details', 'description', 'benefit', 'value']
+      .some((w) => key(second) === w || key(second).startsWith(w));
+    const firstIsLabel = ['scholarship', 'discount', 'feature', 'category', 'type', 'concession', 'waiver']
+      .some((w) => key(first).startsWith(w));
+
+    // …or a labelled first cell in a row carrying no figure at all. A real
+    // row states a credit — "20%", "8-12%", "₹10,000" — so a labelled row
+    // with no number in it is the heading, however its right-hand column is
+    // worded ("Category / Type", "Category | Fee Relaxation").
+    const noFigures = !/\d/.test(cells.join(' '));
+    if (firstIsLabel && (secondIsLabel || noFigures)) {
+      group = /^[A-Z\s/&]+$/.test(first) ? titleCase(first) : first;
       continue;
     }
     out.push({ group, credit: first, eligibility: second });
