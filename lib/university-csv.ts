@@ -546,14 +546,39 @@ function parseSpecializations(rows: Row[]): UniversitySpecialization[] {
 }
 
 /**
- * FAQs, which are prose rather than a table.
+ * FAQs, which arrive in two quite different shapes.
  *
- * Blocks are separated by blank rows. Within a block the first line is the
- * question and everything after it is the answer — several lines, because an
- * answer is often a lead-in followed by bullets, and each bullet is its own
- * row in the sheet.
+ * About half the workbook writes them as prose: one cell per line, a
+ * question followed by its answer, blocks separated by blank rows — and an
+ * answer is often a lead-in plus bullets, each bullet its own row. The other
+ * half writes a plain two-column table headed "Question | Answer".
+ *
+ * Reading the table form as prose produced one FAQ per university, titled
+ * "Question Answer", whose body was every question and answer in the sheet
+ * run together — which is what it looked like on sixteen of the thirty-two
+ * profiles. So the shape is decided first, by which kind of row is more
+ * common, rather than assumed.
  */
 function parseFaqs(rows: Row[]): UniversityFaq[] {
+  const content = rows.filter((r) => filled(r).length > 0);
+  const multiCell = content.filter((r) => filled(r).length >= 2).length;
+
+  // ── Table: question in the first column, answer in the second ──
+  if (multiCell > content.length / 2) {
+    const out: UniversityFaq[] = [];
+    for (const row of content) {
+      if (looksLikeHeader(row, ['question', 'faq', 'query'])) continue;
+      const question = cell(row, 0);
+      if (!question) continue;
+      // The second column is the answer. A third, where there is one, is a
+      // source link whose text adds nothing to what a counsellor reads out.
+      const answer = cell(row, 1);
+      out.push({ question, answers: answer ? [answer] : [] });
+    }
+    return out;
+  }
+
+  // ── Prose: a question, then its answer lines, then a blank row ──
   const out: UniversityFaq[] = [];
   let current: UniversityFaq | null = null;
   for (const row of rows) {
