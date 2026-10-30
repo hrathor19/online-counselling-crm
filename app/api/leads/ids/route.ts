@@ -32,6 +32,18 @@ const querySchema = nonFeedbackQuerySchema.extend({
   feedbackCategoryIds: z.string().optional(),
   skip:  z.coerce.number().min(0).optional(),
   limit: z.coerce.number().min(1).max(10000).optional(),
+  /**
+   * Accepted and ignored.
+   *
+   * The table sends its column sort with every request that shares these
+   * params, and strict() below rightly refuses anything it does not know —
+   * which is how this endpoint catches a filter that was added to the table
+   * but never wired through. Sort is the one thing that changes the ORDER
+   * of the matching leads without changing WHICH leads match, so naming it
+   * here keeps that guard meaningful instead of blanket-allowing extras.
+   */
+  sortBy:  z.string().optional(),
+  sortDir: z.enum(['asc', 'desc']).optional(),
 });
 
 export async function GET(req: NextRequest) {

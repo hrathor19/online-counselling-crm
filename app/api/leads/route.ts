@@ -173,12 +173,48 @@ export async function POST(req: NextRequest) {
   }
 }
 
+/**
+ * Columns a header click can sort by.
+ *
+ * An allow-list, not a free-form field name: this value reaches Prisma's
+ * orderBy, and the columns people can sort by are a deliberate subset
+ * anyway — Feedback and Profile % are both derived rather than stored, so
+ * neither can be ordered in SQL.
+ */
+const SORTABLE = [
+  'name', 'email', 'phone', 'city', 'state', 'course', 'college',
+  'campaign', 'agent', 'assignedAt', 'updatedAt', 'uploadedAt', 'createdAt',
+] as const;
+
+type SortKey = typeof SORTABLE[number];
+
+/** The orderBy for a sortable column, with a stable tiebreaker. */
+function orderForSort(sortBy: SortKey, dir: 'asc' | 'desc') {
+  // `id` last so rows that tie never swap places between pages — without it
+  // the same lead can appear on two pages, or on neither.
+  const tiebreak = { id: 'asc' as const };
+  if (sortBy === 'agent') return [{ assignedTo: { name: dir } }, tiebreak];
+  // Nulls last in both directions: a lead with no city is not "before A".
+  const nullable: SortKey[] = ['city', 'state', 'course', 'college', 'campaign', 'assignedAt', 'uploadedAt', 'email'];
+  if (nullable.includes(sortBy)) return [{ [sortBy]: { sort: dir, nulls: 'last' } }, tiebreak];
+  return [{ [sortBy]: dir }, tiebreak];
+}
+
 const querySchema = nonFeedbackQuerySchema.extend({
   feedbackTab:         z.enum(['all', 'fresh', 'interested', 'followup', 'not_interested']).optional(),
   feedbackOptionIds:   z.string().optional(),
   feedbackCategoryIds: z.string().optional(),   // comma-separated FeedbackCategory IDs
   page:  z.coerce.number().int().positive().default(1),
   limit: z.coerce.number().int().positive().max(100).default(20),
+  /**
+   * Column sorting from the table headers.
+   *
+   * Server-side because the table is paginated: sorting the twenty-five
+   * rows that happen to be on screen would reorder the page rather than the
+   * result, and page two would carry on from the old order.
+   */
+  sortBy:  z.enum(SORTABLE).optional(),
+  sortDir: z.enum(['asc', 'desc']).default('asc'),
 });
 
 export async function GET(req: NextRequest) {
@@ -223,9 +259,13 @@ export async function GET(req: NextRequest) {
         where,
         skip,
         take: limit,
-        orderBy: ['COUNSELLING_AGENT', 'COUNSELLING_TL'].includes(session.user.role)
-          ? [{ assignedAt: 'desc' as const }, { createdAt: 'desc' as const }, { id: 'asc' as const }]
-          : [{ createdAt: 'desc' as const }, { id: 'asc' as const }],
+        orderBy: parsed.data.sortBy
+          ? orderForSort(parsed.data.sortBy, parsed.data.sortDir)
+          // Untouched default: a counsellor opens this to see what they were
+          // given most recently, everyone else to see what came in last.
+          : ['COUNSELLING_AGENT', 'COUNSELLING_TL'].includes(session.user.role)
+            ? [{ assignedAt: 'desc' as const }, { createdAt: 'desc' as const }, { id: 'asc' as const }]
+            : [{ createdAt: 'desc' as const }, { id: 'asc' as const }],
         include: {
           uploadedBy:    { select: { id: true, name: true } },
           approvedBy:    { select: { id: true, name: true } },

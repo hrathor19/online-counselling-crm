@@ -6,7 +6,10 @@ import { useQuery } from '@tanstack/react-query';
 import { useSession } from 'next-auth/react';
 import { useSearchParams } from 'next/navigation';
 import { usePermissions } from '@/lib/usePermissions';
-import { Search, SlidersHorizontal, X, ChevronDown, Check, Minus, Download, Loader2, ListFilter } from 'lucide-react';
+import {
+  Search, SlidersHorizontal, X, ChevronDown, Check, Minus, Download, Loader2, ListFilter,
+  ArrowUp, ArrowDown, ChevronsUpDown,
+} from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { LeadDetailDrawer } from '@/components/leads/lead-detail-drawer';
 import { PaginationBar } from '@/components/shared/pagination-bar';
@@ -111,13 +114,54 @@ interface FeedbackCategory { id: string; name: string; color: string; }
 type FeedbackMode = 'all' | 'fresh';
 type ActiveTab = FeedbackMode | string; // kept for handleTabChange compat
 
-function displayLeadId(id: string) {
-  return id;
+/**
+ * A column heading that sorts when clicked.
+ *
+ * First click sorts ascending, second flips to descending, third clears
+ * back to the list's natural order — which for a counsellor is "most
+ * recently assigned" and is worth being able to get back to without
+ * reloading.
+ *
+ * Sorting is a server round-trip, so the page resets to 1: page four of a
+ * differently ordered list is not the same leads, and leaving the reader
+ * there shows them a page they did not ask for.
+ */
+function SortableTh({
+  label, sortKey, sortBy, sortDir, onSort, className, style,
+}: {
+  label: string;
+  sortKey: string;
+  sortBy: string | null;
+  sortDir: 'asc' | 'desc';
+  onSort: (key: string) => void;
+  className?: string;
+  style?: React.CSSProperties;
+}) {
+  const active = sortBy === sortKey;
+  return (
+    <th style={style} className={cn('whitespace-nowrap px-3 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground', className)}>
+      <button
+        type="button"
+        onClick={() => onSort(sortKey)}
+        aria-sort={active ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
+        className={cn(
+          'group/sort -mx-1 flex w-full items-center gap-1 rounded px-1 py-0.5 text-left uppercase tracking-wider transition-colors hover:text-foreground',
+          active && 'text-primary',
+        )}
+      >
+        {label}
+        {active
+          ? (sortDir === 'asc' ? <ArrowUp className="h-3 w-3 shrink-0" /> : <ArrowDown className="h-3 w-3 shrink-0" />)
+          : <ChevronsUpDown className="h-3 w-3 shrink-0 opacity-0 transition-opacity group-hover/sort:opacity-50" />}
+      </button>
+    </th>
+  );
 }
 
 // ─── Skeleton rows ────────────────────────────────────────────────────────────
 
-const SKELETON_WIDTHS = [4, 8, 20, 28, 40, 24, 16, 16, 20, 32, 24, 20, 20, 20, 24, 24];
+// One per column, Lead ID removed along with its column.
+const SKELETON_WIDTHS = [4, 8, 28, 40, 24, 16, 16, 20, 32, 24, 20, 20, 20, 24, 24];
 
 /**
  * "+2" after a college or course, when the lead has enquired about more than
@@ -230,6 +274,43 @@ export default function AllLeadsPage() {
   const [assignedDateTo,   setAssignedDateTo]   = useState('');
   const [attemptsOp,    setAttemptsOp]    = useState<AttemptsOp>('eq');
   const [attemptsValue, setAttemptsValue] = useState('');
+  /** Which column the table is sorted by; null leaves the server's default. */
+  const [sortBy,  setSortBy]  = useState<string | null>(null);
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+
+  /**
+   * Where the second and third pinned columns start, in pixels.
+   *
+   * Measured rather than written as Tailwind offsets, because a cell's
+   * width in an auto-layout table is a suggestion: with this many columns
+   * the browser shrinks them toward their content and `w-12` rendered as
+   * 37px. Offsets guessed from the classes left an eleven and a twenty
+   * pixel gap beside the pinned columns, through which the scrolled
+   * columns were visible.
+   */
+  const headRowRef = useRef<HTMLTableRowElement | null>(null);
+  const [pinLeft, setPinLeft] = useState({ srNo: 0, name: 0 });
+
+  useEffect(() => {
+    const row = headRowRef.current;
+    if (!row) return;
+    const measure = () => {
+      const cells = row.querySelectorAll('th');
+      if (cells.length < 2) return;
+      const checkbox = cells[0].getBoundingClientRect().width;
+      const srNo = cells[1].getBoundingClientRect().width;
+      setPinLeft((prev) =>
+        prev.srNo === checkbox && prev.name === checkbox + srNo
+          ? prev
+          : { srNo: checkbox, name: checkbox + srNo });
+    };
+    measure();
+    // Re-measure when the table reflows: a longer name, a changed zoom or
+    // a resized window all move where the third column has to sit.
+    const observer = new ResizeObserver(measure);
+    observer.observe(row);
+    return () => observer.disconnect();
+  });
 
   // Advanced filters — all multi-select
   const [campaigns,    setCampaigns]    = useState<string[]>([]);
@@ -286,6 +367,20 @@ export default function AllLeadsPage() {
     removed.forEach(clearFilterValue);
     setActiveFilters(dialogFilters);
     setFilterDialogOpen(false);
+  }
+
+  /**
+   * Cycles a column: ascending, descending, then back to no sort at all.
+   *
+   * The third state matters — the list's natural order is "most recently
+   * assigned" for a counsellor and "newest first" for everyone else, and
+   * once you have sorted by City there is otherwise no way back to it.
+   */
+  function onSort(key: string) {
+    setPage(1);
+    if (sortBy !== key) { setSortBy(key); setSortDir('asc'); return; }
+    if (sortDir === 'asc') { setSortDir('desc'); return; }
+    setSortBy(null); setSortDir('asc');
   }
 
   function clearFilterValue(key: string) {
@@ -382,6 +477,7 @@ export default function AllLeadsPage() {
     if (assignedDateTo)   p.set('assignedDateTo', assignedDateTo);
     const attempts = attemptsParam(attemptsOp, attemptsValue);
     if (attempts) p.set('attempts', attempts);
+    if (sortBy) { p.set('sortBy', sortBy); p.set('sortDir', sortDir); }
     if (campaigns.length)         p.set('campaign',          joinCsvFilterValues(campaigns));
     if (tlIds.length)             p.set('tlId',              tlIds.join(','));
     if (agentIds.length)          p.set('assignedToId',      agentIds.join(','));
@@ -393,6 +489,7 @@ export default function AllLeadsPage() {
     updatedDateFrom, updatedDateTo,
     assignedDateFrom, assignedDateTo,
     attemptsOp, attemptsValue,
+    sortBy, sortDir,
     campaigns, tlIds, agentIds,
   ];
 
@@ -895,33 +992,44 @@ export default function AllLeadsPage() {
       <div className={cn('flex-1 overflow-auto rounded-lg border border-border/60 transition-opacity duration-150', isFetching && 'opacity-60')}>
         <table className="w-full text-sm border-collapse">
           <thead className="sticky top-0 z-20">
-            <tr className="border-b border-border/60 bg-muted">
-              {/* Sticky: checkbox — pinned on both axes, needs highest z */}
-              <th className="sticky left-0 z-30 bg-muted w-10 px-3 py-2.5 text-left">
+            <tr ref={headRowRef} className="border-b border-border/60 bg-muted">
+              {/* Three pinned columns: the checkbox, the row number and the
+                  name. Everything after them scrolls, so a reader dragging
+                  through fifteen columns can still see which lead each row
+                  belongs to. The left offsets have to match the widths of
+                  the cells before them exactly, which is why those widths
+                  are fixed rather than left to the content. */}
+              <th className="sticky left-0 z-30 bg-muted px-3 py-2.5 text-left">
                 <input type="checkbox" checked={allSelected} onChange={toggleAll} className="rounded border-border" />
               </th>
-              {/* Sr No. — not sticky; scrolls away revealing Lead ID sticky at left-10 */}
-              <th className="w-10 px-3 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+              <th
+                style={{ left: pinLeft.srNo }}
+                className="sticky z-30 bg-muted px-3 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground"
+              >
                 Sr No.
               </th>
-              {/* Sticky: Lead ID — pinned on both axes, needs highest z */}
-              <th className="sticky left-10 z-30 bg-muted border-r border-border/60 whitespace-nowrap px-3 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground min-w-[112px]">
-                Lead ID
-              </th>
-              <th className="whitespace-nowrap px-3 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground min-w-[150px]">Name</th>
-              <th className="whitespace-nowrap px-3 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground min-w-[190px]">Email</th>
-              <th className="whitespace-nowrap px-3 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground min-w-[130px]">Phone</th>
-              <th className="whitespace-nowrap px-3 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground min-w-[90px]">City</th>
-              <th className="whitespace-nowrap px-3 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground min-w-[90px]">State</th>
-              <th className="whitespace-nowrap px-3 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground min-w-[110px]">Course</th>
-              <th className="whitespace-nowrap px-3 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground min-w-[160px]">College</th>
-              <th className="whitespace-nowrap px-3 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground min-w-[140px]">Agent</th>
+              <SortableTh
+                label="Name" sortKey="name" sortBy={sortBy} sortDir={sortDir} onSort={onSort}
+                style={{ left: pinLeft.name }}
+                className="sticky z-30 min-w-[180px] border-r border-border/60 bg-muted"
+              />
+              <SortableTh label="Email"   sortKey="email"   sortBy={sortBy} sortDir={sortDir} onSort={onSort} className="min-w-[190px]" />
+              <SortableTh label="Phone"   sortKey="phone"   sortBy={sortBy} sortDir={sortDir} onSort={onSort} className="min-w-[130px]" />
+              <SortableTh label="City"    sortKey="city"    sortBy={sortBy} sortDir={sortDir} onSort={onSort} className="min-w-[90px]" />
+              <SortableTh label="State"   sortKey="state"   sortBy={sortBy} sortDir={sortDir} onSort={onSort} className="min-w-[90px]" />
+              <SortableTh label="Course"  sortKey="course"  sortBy={sortBy} sortDir={sortDir} onSort={onSort} className="min-w-[110px]" />
+              <SortableTh label="College" sortKey="college" sortBy={sortBy} sortDir={sortDir} onSort={onSort} className="min-w-[160px]" />
+              <SortableTh label="Agent"   sortKey="agent"   sortBy={sortBy} sortDir={sortDir} onSort={onSort} className="min-w-[140px]" />
+              {/* Feedback and Profile % are not sortable: the first is the
+                  latest row of a relation, the second is computed in the
+                  browser from the lead's profile. Neither exists as a column
+                  the database could order by. */}
               <th className="whitespace-nowrap px-3 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground min-w-[160px]">Feedback</th>
               <th className="whitespace-nowrap px-3 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground min-w-[130px]">Profile %</th>
-              <th className="whitespace-nowrap px-3 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground min-w-[130px]">Lead Source</th>
-              <th className="whitespace-nowrap px-3 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground min-w-[150px]">Assign/Reassign Date</th>
-              <th className="whitespace-nowrap px-3 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground min-w-[130px]">Updated At</th>
-              <th className="whitespace-nowrap px-3 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground min-w-[130px]">Uploaded At</th>
+              <SortableTh label="Lead Source"          sortKey="campaign"   sortBy={sortBy} sortDir={sortDir} onSort={onSort} className="min-w-[130px]" />
+              <SortableTh label="Assign/Reassign Date" sortKey="assignedAt" sortBy={sortBy} sortDir={sortDir} onSort={onSort} className="min-w-[150px]" />
+              <SortableTh label="Updated At"           sortKey="updatedAt"  sortBy={sortBy} sortDir={sortDir} onSort={onSort} className="min-w-[130px]" />
+              <SortableTh label="Uploaded At"          sortKey="uploadedAt" sortBy={sortBy} sortDir={sortDir} onSort={onSort} className="min-w-[130px]" />
             </tr>
           </thead>
           <tbody>
@@ -959,7 +1067,10 @@ export default function AllLeadsPage() {
                         isSelected ? 'bg-primary/10' : 'hover:bg-muted/20',
                       )}
                     >
-                      {/* Sticky: checkbox */}
+                      {/* The three pinned cells. Their widths and left
+                          offsets mirror the header exactly, and each needs a
+                          fully opaque background or the scrolled columns
+                          show through them. */}
                       <td
                         className={cn('sticky left-0 z-10 px-3 py-2.5 transition-colors', stickyBg)}
                         onClick={(e) => e.stopPropagation()}
@@ -967,14 +1078,19 @@ export default function AllLeadsPage() {
                         <input type="checkbox" checked={selectedIds.includes(lead.id)} onChange={() => toggleSelect(lead.id)} className="rounded border-border" />
                       </td>
 
-                      {/* Sr No. */}
-                      <td className="px-3 py-2.5 text-xs text-muted-foreground tabular-nums whitespace-nowrap">{srNo}</td>
-
-                      {/* Sticky: Lead ID */}
-                      <td className={cn('sticky left-10 z-10 border-r border-border/60 px-3 py-2.5 font-mono text-xs text-muted-foreground whitespace-nowrap transition-colors', stickyBg)}>
-                        {displayLeadId(lead.id)}
+                      <td
+                        style={{ left: pinLeft.srNo }}
+                        className={cn('sticky z-10 whitespace-nowrap px-3 py-2.5 text-xs tabular-nums text-muted-foreground transition-colors', stickyBg)}
+                      >
+                        {srNo}
                       </td>
-                      <td className="px-3 py-2.5 whitespace-nowrap font-semibold text-sm">{lead.name}</td>
+
+                      <td
+                        style={{ left: pinLeft.name }}
+                        className={cn('sticky z-10 min-w-[180px] whitespace-nowrap border-r border-border/60 px-3 py-2.5 text-sm font-semibold transition-colors', stickyBg)}
+                      >
+                        {lead.name}
+                      </td>
                       <td className="px-3 py-2.5 whitespace-nowrap text-xs text-muted-foreground">{lead.email}</td>
                       <td className="px-3 py-2.5 whitespace-nowrap text-[#e90000] dark:text-white font-medium text-sm">{lead.phone}</td>
                       <td className="px-3 py-2.5 whitespace-nowrap text-xs text-muted-foreground">{lead.city || '—'}</td>
@@ -1041,7 +1157,7 @@ export default function AllLeadsPage() {
                 })}
                 {leads.length === 0 && (
                   <tr>
-                    <td colSpan={17} className="px-3 py-16 text-center text-muted-foreground text-sm">
+                    <td colSpan={16} className="px-3 py-16 text-center text-muted-foreground text-sm">
                       No leads found matching the current filters.
                     </td>
                   </tr>
