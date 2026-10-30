@@ -581,20 +581,51 @@ function parseFaqs(rows: Row[]): UniversityFaq[] {
     return out;
   }
 
-  // ── Prose: a question, then its answer lines, then a blank row ──
+  // ── Prose: a question followed by its answer lines ──
+  //
+  // What separates one entry from the next is the text, not the spacing.
+  // A blank row used to end a block, which works for a sheet that puts one
+  // between questions — and breaks on VGU, which puts one between every
+  // bullet of an answer, so each bullet became a question of its own and
+  // "Pay the academic fee or select a no-cost EMI plan." was listed as
+  // something a student had asked.
   const out: UniversityFaq[] = [];
   let current: UniversityFaq | null = null;
   for (const row of rows) {
-    if (isBlank(row)) { current = null; continue; }
+    if (isBlank(row)) continue;   // spacing, nothing more
     const text = filled(row).join(' ');
-    if (!current) {
-      current = { question: text, answers: [] };
+    const lines = text.split(/\n+/).map((l) => l.trim()).filter(Boolean);
+
+    // Amrita writes the question and its answer in one cell, separated by a
+    // line break. Such a cell does not end in a question mark — it ends in
+    // the answer — so without splitting it first the whole entry was folded
+    // into the one before it and seven FAQs became two.
+    if (lines.length > 1 && isQuestionLine(lines[0])) {
+      current = { question: lines[0], answers: lines.slice(1) };
+      out.push(current);
+      continue;
+    }
+
+    const line = lines.join(' ');
+    if (!current || isQuestionLine(line)) {
+      current = { question: line, answers: [] };
       out.push(current);
     } else {
-      current.answers.push(text);
+      current.answers.push(line);
     }
   }
   return out.filter((f) => f.question);
+}
+
+/**
+ * Whether a line opens a new FAQ rather than continuing the last answer.
+ *
+ * A question mark at the end, or a "Q7)" style number at the start — the
+ * two ways these sheets mark one. An answer bullet has neither.
+ */
+function isQuestionLine(text: string): boolean {
+  const t = text.trim();
+  return /\?\s*$/.test(t) || /^q\s*\d+\s*[).:\-]/i.test(t);
 }
 
 function parsePartners(rows: Row[]): string[] {
