@@ -3,24 +3,31 @@ import { getServerSession } from 'next-auth';
 import { z } from 'zod';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
-import { Prisma } from '@prisma/client';
+import { hasPermission, logActivity } from '@/lib/permissions';
+import { Feature, Prisma } from '@prisma/client';
+import {
+  normalizeProfile,
+  writeProfileSections,
+  uniqueSlug,
+  ProfileInputError,
+} from '@/lib/university-profile';
 
 /**
  * The universities this team sells, for the College/Course Search listing.
  *
- * Read-only and open to any signed-in role, the same posture the LMS
- * catalogue it replaces had: it is reference material a counsellor quotes on
- * a call, with no PII in it and nothing destructive to do.
+ * Reading is open to any signed-in role — it is reference material a
+ * counsellor quotes on a call, with no PII in it. Writing is behind
+ * MANAGE_DROPDOWNS, the same gate as the rest of Manage Universities.
  *
- * Only the fields the cards actually draw are selected. The detail panel is a
- * separate request, because the profile it renders — every fee row, every
- * FAQ, every hiring partner — is a lot of JSON to send 38 times over for a
- * grid that shows a name, a few chips and a fee range.
+ * Only the fields the cards actually draw are selected. The detail panel is
+ * a separate request, because the profile it renders — every fee row, every
+ * FAQ, every hiring partner — is a lot of JSON to send over for a grid that
+ * shows a name, a few chips and a fee range.
  */
 const querySchema = z.object({
   search:    z.string().optional(),
   state:     z.string().optional(),   // comma-separated
-  course:    z.string().optional(),   // comma-separated programme codes
+  course:    z.string().optional(),   // comma-separated programme names
   level:     z.string().optional(),   // comma-separated programme levels
   accreditedBy: z.string().optional(),// comma-separated accreditation bodies
   feesMin:   z.coerce.number().int().min(0).optional(),
@@ -31,6 +38,21 @@ const querySchema = z.object({
 });
 
 const split = (v?: string) => (v ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+
+/**
+ * What a programme costs, for the card's range and the fees filter.
+ *
+ * The total is the headline figure, but a university priced per year with no
+ * total should still answer a fee search rather than drop out of it, so the
+ * annual figure stands in when there is no total. Both sides — the SQL
+ * filter and the range on the card — read it the same way.
+ */
+const feeFilter = (range: Prisma.IntNullableFilter): Prisma.UniversityWhereInput => ({
+  OR: [
+    { fees: { some: { totalFee: range } } },
+    { fees: { some: { totalFee: null, annualFee: range } } },
+  ],
+});
 
 export async function GET(req: NextRequest) {
   try {
@@ -54,8 +76,8 @@ export async function GET(req: NextRequest) {
           { name:  { contains: q.search, mode: 'insensitive' } },
           { city:  { contains: q.search, mode: 'insensitive' } },
           { state: { contains: q.search, mode: 'insensitive' } },
-          { programmes: { some: { code:     { contains: q.search, mode: 'insensitive' } } } },
-          { programmes: { some: { fullName: { contains: q.search, mode: 'insensitive' } } } },
+          { programmes: { some: { programme: { contains: q.search, mode: 'insensitive' } } } },
+          { programmes: { some: { fullName:  { contains: q.search, mode: 'insensitive' } } } },
         ],
       });
     }
@@ -64,7 +86,7 @@ export async function GET(req: NextRequest) {
     if (states.length) and.push({ state: { in: states, mode: 'insensitive' } });
 
     const courses = split(q.course);
-    if (courses.length) and.push({ programmes: { some: { code: { in: courses, mode: 'insensitive' } } } });
+    if (courses.length) and.push({ programmes: { some: { programme: { in: courses, mode: 'insensitive' } } } });
 
     const levels = split(q.level);
     if (levels.length) and.push({ programmes: { some: { level: { in: levels, mode: 'insensitive' } } } });
@@ -79,10 +101,10 @@ export async function GET(req: NextRequest) {
      * "under ₹1,00,000" — the student can afford the BA.
      */
     if (q.feesMin !== undefined || q.feesMax !== undefined) {
-      const fee: Prisma.IntNullableFilter = {};
-      if (q.feesMin !== undefined) fee.gte = q.feesMin;
-      if (q.feesMax !== undefined) fee.lte = q.feesMax;
-      and.push({ programmeFees: { some: { oneTimePayment: fee, currency: 'INR' } } });
+      const range: Prisma.IntNullableFilter = {};
+      if (q.feesMin !== undefined) range.gte = q.feesMin;
+      if (q.feesMax !== undefined) range.lte = q.feesMax;
+      and.push(feeFilter(range));
     }
 
     if (and.length) where.AND = and;
@@ -95,26 +117,23 @@ export async function GET(req: NextRequest) {
         take: q.limit,
         select: {
           id: true, name: true, slug: true, universityType: true,
-          city: true, state: true, heroImageUrl: true, logoUrl: true,
-          establishmentYear: true,
-          accreditations: { select: { body: true, status: true }, orderBy: { sortOrder: 'asc' } },
-          programmes:     { select: { code: true, level: true }, orderBy: { sortOrder: 'asc' } },
-          // Only what the "Average full fees" line needs.
-          // Rupees only: a card showing "from ₹1,400" because one row was
-          // really $1,400 of overseas fees would undercut the real price by
-          // two orders of magnitude.
-          programmeFees:  { select: { oneTimePayment: true }, where: { oneTimePayment: { not: null }, currency: 'INR' } },
+          city: true, state: true, establishmentYear: true,
+          accreditations: { select: { body: true }, orderBy: { sortOrder: 'asc' } },
+          programmes:     { select: { programme: true, level: true }, orderBy: { sortOrder: 'asc' } },
+          fees:           { select: { totalFee: true, annualFee: true } },
         },
       }),
       prisma.university.count({ where }),
     ]);
 
     const shaped = universities.map((u) => {
-      const amounts = u.programmeFees.map((f) => f.oneTimePayment!).filter((n) => n > 0);
-      const { programmeFees, ...rest } = u;
+      const amounts = u.fees
+        .map((f) => f.totalFee ?? f.annualFee)
+        .filter((n): n is number => typeof n === 'number' && n > 0);
+      const { fees, ...rest } = u;
       return {
         ...rest,
-        courses: Array.from(new Set(u.programmes.map((p) => p.code))),
+        courses: Array.from(new Set(u.programmes.map((p) => p.programme))),
         feesFrom: amounts.length ? Math.min(...amounts) : null,
         feesTo:   amounts.length ? Math.max(...amounts) : null,
       };
@@ -122,7 +141,7 @@ export async function GET(req: NextRequest) {
 
     // Sorting by fee is done here rather than in SQL: the figure is the
     // cheapest of a university's programmes, which Prisma cannot order by
-    // without a raw aggregate, and 38 rows do not justify one.
+    // without a raw aggregate, and a catalogue this size does not justify one.
     if (q.sort === 'fees_low' || q.sort === 'fees_high') {
       const dir = q.sort === 'fees_low' ? 1 : -1;
       shaped.sort((a, b) => {
@@ -141,6 +160,68 @@ export async function GET(req: NextRequest) {
     });
   } catch (error) {
     console.error('[universities GET]', error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  }
+}
+
+/**
+ * Creates a university.
+ *
+ * Usually called with nothing but a name: the editor creates the record and
+ * then opens it, because the Sample Degree upload needs somewhere to put the
+ * file and a section form with no id behind it has nowhere to save to. A
+ * full profile is accepted all the same, so a seed script or a later import
+ * does not need a second code path.
+ */
+export async function POST(req: NextRequest) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+    const allowed = await hasPermission(session.user.role, Feature.MANAGE_DROPDOWNS);
+    if (!allowed) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+
+    const body = await req.json().catch(() => null);
+    const profile = normalizeProfile(body);
+
+    const existing = await prisma.university.findFirst({
+      where: { name: { equals: profile.header.name, mode: 'insensitive' } },
+      select: { id: true, name: true },
+    });
+    if (existing) {
+      return NextResponse.json(
+        { error: `"${existing.name}" already exists`, id: existing.id },
+        { status: 409 },
+      );
+    }
+
+    const created = await prisma.$transaction(async (tx) => {
+      const university = await tx.university.create({
+        data: {
+          ...profile.header,
+          slug: await uniqueSlug(tx, profile.header.name),
+          updatedById: session.user.id,
+        },
+        select: { id: true, name: true, slug: true },
+      });
+      await writeProfileSections(tx, university.id, profile.sections);
+      return university;
+    }, { timeout: 20000 });
+
+    await logActivity({
+      userId: session.user.id,
+      action: 'UNIVERSITY_CREATED',
+      targetId: created.id,
+      targetType: 'University',
+      description: `Created university "${created.name}"`,
+    });
+
+    return NextResponse.json(created, { status: 201 });
+  } catch (error) {
+    if (error instanceof ProfileInputError) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+    console.error('[universities POST]', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

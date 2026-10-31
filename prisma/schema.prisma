@@ -162,9 +162,14 @@ enum ActivityAction {
   LEAD_INTEGRATION_CREATED
   LEAD_INTEGRATION_UPDATED
   LEAD_INTEGRATION_DELETED
-  /// A university profile CSV was uploaded, or the university removed. Both
-  /// replace what counsellors quote on calls, so both are worth a trail.
+  /// Edits to a university profile. What counsellors quote on calls, so
+  /// every change to one is worth a trail.
+  ///
+  /// UNIVERSITY_IMPORTED is retired — profiles are maintained by hand now —
+  /// but the value stays so existing log rows keep resolving.
   UNIVERSITY_IMPORTED
+  UNIVERSITY_CREATED
+  UNIVERSITY_UPDATED
   UNIVERSITY_DELETED
   LEADS_EXPORTED
 }
@@ -311,7 +316,7 @@ model User {
 
   // Dropdown options created by this user (SA)
   createdDropdownOptions DropdownOption[] @relation("DropdownOptionCreator")
-  importedUniversities   University[]     @relation("UniversityImportedBy")
+  updatedUniversities    University[]     @relation("UniversityUpdatedBy")
 
   // Activity log
   activityLogs ActivityLog[]
@@ -1378,149 +1383,260 @@ model EmailLog {
 
 // ─── University profiles ──────────────────────────────────────────────────────
 //
-// The universities this team actually sells, each imported from one CSV laid
-// out in numbered sections (University information, Accreditations, Programmes
-// summary, FAQs, Company Partners, UG/PG Programs, Top Faculties, Location,
-// Scholarships). See lib/university-csv.ts for the parser.
+// The universities this team sells, maintained by hand under Manage
+// Universities. Every section below is a table rather than a JSON blob
+// because the data team edits them row by row: a row needs its own id to be
+// reordered or removed, and a column needs its own type to be validated.
 //
-// This replaces the old College/Course Search, which proxied the LMS catalogue
-// of ~9,937 colleges live. That catalogue could answer "does this college
-// exist" but nothing a counsellor needs on a call — fees, accreditations,
-// scholarships, who hires from there. None of it could be curated either.
-//
-// Why some sections are columns and others are JSON: the filters on the
-// listing page — fees range, accreditation body, course, programme level,
-// state — have to be queried, so those live in real tables with indexes.
-// FAQs, hiring partners, faculty, location stops and scholarships are only
-// ever rendered on one detail panel, so they are JSON and cost no joins.
+// Each child table carries sortOrder, because the order the data team enters
+// rows in is the order a counsellor should read them, and cascades on delete,
+// so removing a university takes its profile with it.
 model University {
   id   String @id @default(cuid())
-  /// The display name, and the natural key an import matches on: re-uploading
-  /// a university's CSV updates it in place rather than creating a second.
+  /// The display name, and the key a counsellor searches by.
   name String @unique
   slug String @unique
 
-  universityType    String?
   establishmentYear String?
-  address           String?
+  /// Public State, Central, Private or Deemed — see UNIVERSITY_TYPES in
+  /// lib/university-fields.ts, which is what the form offers.
+  universityType    String?
+  campusAddress     String?
+  /// Derived from the address on save, for the State filter on the listing.
   city              String?
   state             String?
   email             String?
-  phone             String?
-  universityPageUrl String?
-  brochureUrl       String?
-  heroImageUrl      String?
-  logoUrl           String?
+  contactNumber     String?
+  whatsappNumber    String?
+  whatsappLink      String?
+  websiteLink       String?
 
-  /// [{ question, answers: string[] }]
-  faqs            Json?
-  /// string[] — the hiring partners grid.
-  partners        Json?
-  /// [{ name, designation, qualification, experience, description }]
-  faculty         Json?
-  /// [{ transportType, nearest, distance }]
-  locationStops   Json?
-  /// [{ group, credit, eligibility }] — "group" separates the scholarship
-  /// table from the discount table, which the sheet stacks under one heading.
-  scholarships    Json?
-  /// [{ programme, specialization, type }] — the electives inside each
-  /// course, which most tabs carry as their own section.
-  specializations Json?
-  /// Free text a section carries above its table, e.g. the scholarship
-  /// caveat about document verification.
-  sectionNotes    Json?
-  /// Sections the parser did not recognise, kept verbatim rather than
-  /// dropped: a university whose sheet grows an eleventh section should
-  /// surface as "not imported yet", not silently lose data.
-  extraSections   Json?
+  isActive Boolean @default(true)
 
-  isActive     Boolean  @default(true)
-  sourceFile   String?
-  importedAt   DateTime @default(now())
-  importedById String?
-  importedBy   User?    @relation("UniversityImportedBy", fields: [importedById], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  updatedById String?
+  updatedBy   User?    @relation("UniversityUpdatedBy", fields: [updatedById], references: [id])
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  accreditations UniversityAccreditation[]
-  programmes     UniversityProgramme[]
-  programmeFees  UniversityProgrammeFee[]
+  accreditations   UniversityAccreditation[]
+  programmes       UniversityProgramme[]
+  specializations  UniversitySpecialization[]
+  fees             UniversityProgrammeFee[]
+  faqs             UniversityFaq[]
+  partners         UniversityPartner[]
+  locations        UniversityLocation[]
+  scholarships     UniversityScholarship[]
+  faculty          UniversityFaculty[]
+  rankings         UniversityRanking[]
+  learningFeatures UniversityLearningFeature[]
+  careerServices   UniversityCareerService[]
+  sampleDegrees    UniversitySampleDegree[]
 
   @@index([isActive])
   @@index([state])
 }
 
-/// One row of "Accreditations and recognitions". Also what the listing page's
-/// "Approved by" filter matches on, hence a table rather than JSON.
+/// 2. Accreditations and Recognitions. Also what the listing's "Approved by"
+/// filter matches on, which is why body is indexed.
 model UniversityAccreditation {
   id           String     @id @default(cuid())
   universityId String
   university   University @relation(fields: [universityId], references: [id], onDelete: Cascade)
   body         String
   status       String?
+  sourceLink   String?
   sortOrder    Int        @default(0)
 
   @@index([universityId])
   @@index([body])
 }
 
-/// One row of "Programmes summary" — the course families a university offers,
-/// which is what the cards list and the Course and Programme Level filters
-/// match on. Distinct from UniversityProgrammeFee, which is the priced
-/// variants of these ("MBA" here; "MBA in Construction Project Management"
-/// there).
+/// 3. Programmes Summary — the course families on offer, which the cards list
+/// and the Course and Level filters match on.
 model UniversityProgramme {
-  id              String     @id @default(cuid())
-  universityId    String
-  university      University @relation(fields: [universityId], references: [id], onDelete: Cascade)
-  code            String
-  fullName        String?
-  level           String?
-  durationMonths  Int?
-  specializations Int?
-  sortOrder       Int        @default(0)
+  id                  String     @id @default(cuid())
+  universityId        String
+  university          University @relation(fields: [universityId], references: [id], onDelete: Cascade)
+  programme           String
+  fullName            String?
+  level               String?
+  durationMonths      Int?
+  specializationCount Int?
+  source              String?
+  link                String?
+  sortOrder           Int        @default(0)
 
   @@index([universityId])
-  @@index([code])
+  @@index([programme])
   @@index([level])
 }
 
-/// A priced programme, from the UnderGraduate and PostGraduate sections.
+/// 4. Programme Specializations. Matched to a programme by name, which is how
+/// the detail panel groups them under their course.
+model UniversitySpecialization {
+  id             String     @id @default(cuid())
+  universityId   String
+  university     University @relation(fields: [universityId], references: [id], onDelete: Cascade)
+  programme      String
+  specialization String
+  officialLink   String?
+  sortOrder      Int        @default(0)
+
+  @@index([universityId])
+}
+
+/// 5 and 6. Undergraduate and Postgraduate fees — one table, told apart by
+/// `level`, because every column is the same and splitting them would mean
+/// two of everything downstream.
 ///
-/// Money is stored as whole rupees rather than the sheet's "₹1,75,120"
-/// strings, so the fees-range filter can compare it and every fee renders in
-/// one format. The sheet is not internally consistent about that — one EMI
-/// cell is missing the "/month" every other row carries — and parsing to a
-/// number makes that irrelevant.
+/// Money is stored as whole rupees rather than as typed text, so the fees
+/// filter can compare it and every figure renders in one format. The form
+/// accepts "1,80,000" or "₹1,80,000" and keeps the number.
 model UniversityProgrammeFee {
   id             String     @id @default(cuid())
   universityId   String
   university     University @relation(fields: [universityId], references: [id], onDelete: Cascade)
-  programmeName  String
-  /// "Undergraduate" or "Postgraduate" where the section or a Level column
-  /// says so. Nullable because many tabs have a single "Fee Structure"
-  /// table that never states a level.
-  level          String?
+  /// "Undergraduate" or "Postgraduate".
+  level          String
+  programme      String
   duration       String?
-  oneTimePayment Int?
+  totalFee       Int?
   annualFee      Int?
   perSemesterFee Int?
-  emiPerMonth    Int?
-  /// Several tabs carry the entry requirement beside the price, which is the
-  /// other thing a counsellor is asked in the same breath.
+  emiStarting    Int?
   eligibility    String?
-  programmeUrl   String?
-  /// "Domestic" or "International" — a number of universities publish a
-  /// separate overseas fee table, and mixing the two would misquote both.
-  audience       String     @default("Domestic")
-  /// "INR" or "USD". Sharda and others price overseas students in dollars,
-  /// and a $2,400 MBA stored as rupees reads as a ₹2,400 MBA.
-  currency       String     @default("INR")
+  officialUrl    String?
   sortOrder      Int        @default(0)
 
   @@index([universityId])
   @@index([level])
-  @@index([audience])
-  @@index([oneTimePayment])
+  @@index([totalFee])
+}
+
+/// 7. Frequently Asked Questions.
+model UniversityFaq {
+  id           String     @id @default(cuid())
+  universityId String
+  university   University @relation(fields: [universityId], references: [id], onDelete: Cascade)
+  question     String
+  answer       String?
+  sortOrder    Int        @default(0)
+
+  @@index([universityId])
+}
+
+/// 8. Company Partners / Recruiters.
+model UniversityPartner {
+  id           String     @id @default(cuid())
+  universityId String
+  university   University @relation(fields: [universityId], references: [id], onDelete: Cascade)
+  name         String
+  sortOrder    Int        @default(0)
+
+  @@index([universityId])
+}
+
+/// 9. Location and Transportation.
+model UniversityLocation {
+  id            String     @id @default(cuid())
+  universityId  String
+  university    University @relation(fields: [universityId], references: [id], onDelete: Cascade)
+  transportType String
+  nearestStop   String?
+  distance      String?
+  notes         String?
+  sortOrder     Int        @default(0)
+
+  @@index([universityId])
+}
+
+/// 10. Scholarships and Discounts.
+model UniversityScholarship {
+  id           String     @id @default(cuid())
+  universityId String
+  university   University @relation(fields: [universityId], references: [id], onDelete: Cascade)
+  name         String
+  type         String?
+  eligibility  String?
+  sourceLink   String?
+  sortOrder    Int        @default(0)
+
+  @@index([universityId])
+}
+
+/// 11. Top Faculties.
+model UniversityFaculty {
+  id            String     @id @default(cuid())
+  universityId  String
+  university    University @relation(fields: [universityId], references: [id], onDelete: Cascade)
+  name          String
+  designation   String?
+  qualification String?
+  description   String?
+  sourceLink    String?
+  sortOrder     Int        @default(0)
+
+  @@index([universityId])
+}
+
+/// 12. Global Rankings and Recognition.
+model UniversityRanking {
+  id           String     @id @default(cuid())
+  universityId String
+  university   University @relation(fields: [universityId], references: [id], onDelete: Cascade)
+  body         String
+  details      String?
+  year         String?
+  sourceLink   String?
+  sortOrder    Int        @default(0)
+
+  @@index([universityId])
+}
+
+/// 13. Learning Experience and LMS Features.
+model UniversityLearningFeature {
+  id           String     @id @default(cuid())
+  universityId String
+  university   University @relation(fields: [universityId], references: [id], onDelete: Cascade)
+  feature      String
+  capability   String?
+  benefit      String?
+  officialLink String?
+  sortOrder    Int        @default(0)
+
+  @@index([universityId])
+}
+
+/// 14. Career Services and Placement Assistance.
+model UniversityCareerService {
+  id           String     @id @default(cuid())
+  universityId String
+  university   University @relation(fields: [universityId], references: [id], onDelete: Cascade)
+  feature      String
+  capability   String?
+  impact       String?
+  portalLink   String?
+  sortOrder    Int        @default(0)
+
+  @@index([universityId])
+}
+
+/// 15. Sample Degree — a title, a description and an uploaded image.
+///
+/// The image is stored outside /public and served by an authenticated route,
+/// the same arrangement receipts use: nothing in storage is reachable without
+/// a session. See lib/university-storage.ts.
+model UniversitySampleDegree {
+  id               String     @id @default(cuid())
+  universityId     String
+  university       University @relation(fields: [universityId], references: [id], onDelete: Cascade)
+  title            String
+  description      String?
+  fileOriginalName String?
+  /// Path relative to the private storage root; never a URL.
+  filePath         String?
+  fileMimeType     String?
+  sortOrder        Int        @default(0)
+
+  @@index([universityId])
 }

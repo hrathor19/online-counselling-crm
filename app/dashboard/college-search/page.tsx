@@ -25,8 +25,8 @@ interface UniversityCard {
   universityType?: string | null;
   city?: string | null; state?: string | null;
   establishmentYear?: string | null;
-  accreditations: { body: string; status?: string | null }[];
-  programmes: { code: string; level?: string | null }[];
+  accreditations: { body: string }[];
+  programmes: { programme: string; level?: string | null }[];
   courses: string[];
   feesFrom: number | null;
   feesTo: number | null;
@@ -270,8 +270,11 @@ export default function CollegeSearchPage() {
                   {u.accreditations.length > 0 && (
                     <div className="flex flex-wrap gap-1">
                       {u.accreditations.slice(0, 2).map((a) => (
+                        /* The body alone. Its status is a sentence of prose
+                           now, which belongs in the drawer rather than
+                           stretched across a chip on a card. */
                         <span key={a.body} className="rounded border border-border/60 bg-muted/40 px-1.5 py-0.5 text-[10px] font-medium">
-                          {a.body}{a.status ? ` · ${a.status}` : ''}
+                          {a.body}
                         </span>
                       ))}
                       {u.accreditations.length > 2 && (

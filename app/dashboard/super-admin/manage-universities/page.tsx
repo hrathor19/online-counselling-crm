@@ -1,320 +1,160 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Upload, Trash2, Loader2, AlertTriangle, CheckCircle2, FileText, Building2, Link2, MinusCircle, XCircle, Download } from 'lucide-react';
+import {
+  Plus, Trash2, Loader2, Building2, Search, Pencil, Eye, EyeOff,
+} from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { formatIstDateTime } from '@/lib/ist-time';
+import { UNIVERSITY_SECTIONS } from '@/lib/university-fields';
 
 /**
- * Manage Universities — upload a profile CSV, see what came in, remove one.
+ * Manage Universities — the data team's worklist.
  *
- * Uploading a university that already exists replaces its profile rather than
- * creating a second, because that IS the update path: these sheets are
- * maintained over time and fees change every intake.
+ * Each row is a profile to fill in, and the only numbers shown are the ones
+ * that say whether it is worth a counsellor's time: how many of the thirteen
+ * sections have anything in them, and whether it is live. Everything else is
+ * one click away in the editor.
  */
 
 interface UniversityRow {
   id: string; name: string; slug: string;
   city?: string | null; state?: string | null;
-  sourceFile?: string | null; importedAt: string;
-  importedBy?: { name: string } | null;
-  _counts: { programmes: number; fees: number; accreditations: number };
+  universityType?: string | null;
+  isActive: boolean;
+  updatedAt: string;
+  updatedBy?: { name: string } | null;
+  counts: Record<string, number>;
+  sectionsFilled: number;
 }
 
-interface TabResult {
-  tab: string;
-  status: 'imported' | 'replaced' | 'skipped' | 'failed';
-  university?: string;
-  reason?: string;
-  counts?: Record<string, number>;
-  warnings?: string[];
-}
-
-interface SheetResult {
-  success?: boolean; tabs: number;
-  imported: number; replaced: number; skipped: number; failed: number;
-  results: TabResult[];
-}
-
-interface ImportResult {
-  success?: boolean; replaced?: boolean; error?: unknown;
-  university?: { id: string; name: string };
-  counts?: Record<string, number>;
-  warnings?: string[];
-}
+const TOTAL_SECTIONS = UNIVERSITY_SECTIONS.length - 1; // feesUg and feesPg share a table
 
 export default function ManageUniversitiesPage() {
   const { toast } = useToast();
   const qc = useQueryClient();
-  const fileRef = useRef<HTMLInputElement>(null);
+  const router = useRouter();
   const [deleting, setDeleting] = useState<UniversityRow | null>(null);
-  const [lastResult, setLastResult] = useState<ImportResult | null>(null);
-  const [sheetUrl, setSheetUrl] = useState('');
-  const [sheetResult, setSheetResult] = useState<SheetResult | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [search, setSearch] = useState('');
 
   const { data, isLoading } = useQuery<{ universities: UniversityRow[] }>({
     queryKey: ['manage-universities'],
     queryFn: () => fetch('/api/universities/manage').then((r) => r.json()),
   });
 
-  const importMutation = useMutation<ImportResult, Error, { fileName: string; csv: string }>({
-    mutationFn: (payload) =>
-      fetch('/api/universities/import', {
+  /**
+   * Creating goes straight into the editor.
+   *
+   * A university is made from its name alone and everything else is typed on
+   * the next screen — the Sample Degree upload needs a record to attach to,
+   * and a fifteen-section form behind a "create" button is a wall nobody
+   * wants to face before they have even named the thing.
+   */
+  const createMutation = useMutation<{ id: string }, Error, string>({
+    mutationFn: (name) =>
+      fetch('/api/universities', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({ name }),
       }).then(async (r) => {
         const body = await r.json().catch(() => ({}));
-        if (!r.ok) throw new Error(typeof body?.error === 'string' ? body.error : 'That file could not be imported.');
-        return body as ImportResult;
+        if (!r.ok) throw new Error(typeof body?.error === 'string' ? body.error : 'Could not create that university.');
+        return body;
       }),
-    onSuccess: (result) => {
-      setLastResult(result);
-      toast({
-        title: result.replaced ? 'University updated' : 'University imported',
-        description: `${result.university?.name} — ${result.counts?.programmes ?? 0} programmes, ${result.counts?.fees ?? 0} priced courses.`,
-      });
+    onSuccess: (created) => {
       qc.invalidateQueries({ queryKey: ['manage-universities'] });
-      qc.invalidateQueries({ queryKey: ['universities'] });
-      qc.invalidateQueries({ queryKey: ['university-filters'] });
+      setCreating(false);
+      setNewName('');
+      router.push(`/dashboard/super-admin/manage-universities/${created.id}`);
     },
-    onError: (err) => {
-      setLastResult(null);
-      toast({ variant: 'destructive', title: 'Import failed', description: err.message });
-    },
+    onError: (err) => toast({ variant: 'destructive', title: 'Not created', description: err.message }),
   });
 
-  /**
-   * Importing a whole workbook, which is how these sheets are actually kept:
-   * one tab per university. A CSV export only ever contains the first tab,
-   * so uploading one of those produced a single university out of a file
-   * that holds thirty-three.
-   */
-  const sheetMutation = useMutation<SheetResult, Error, string>({
-    mutationFn: (url) =>
-      fetch('/api/universities/import-sheet', {
-        method: 'POST',
+  const publishMutation = useMutation<unknown, Error, { row: UniversityRow; isActive: boolean }>({
+    mutationFn: ({ row, isActive }) =>
+      fetch(`/api/universities/${row.id}`, {
+        method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url }),
+        body: JSON.stringify({ isActive }),
       }).then(async (r) => {
-        const body = await r.json().catch(() => ({}));
-        if (!r.ok) throw new Error(typeof body?.error === 'string' ? body.error : 'That sheet could not be imported.');
-        return body as SheetResult;
+        if (!r.ok) throw new Error('Could not change that.');
       }),
-    onSuccess: (result) => {
-      setSheetResult(result);
-      setLastResult(null);
-      toast({
-        title: `${result.imported + result.replaced} universities imported`,
-        description: `${result.imported} new, ${result.replaced} updated, ${result.skipped} skipped, ${result.failed} failed across ${result.tabs} tabs.`,
-      });
+    onSuccess: (_d, { isActive }) => {
       qc.invalidateQueries({ queryKey: ['manage-universities'] });
       qc.invalidateQueries({ queryKey: ['universities'] });
-      qc.invalidateQueries({ queryKey: ['university-filters'] });
+      toast({ title: isActive ? 'Published' : 'Unpublished' });
     },
-    onError: (err) => {
-      setSheetResult(null);
-      toast({ variant: 'destructive', title: 'Sheet import failed', description: err.message });
-    },
+    onError: (err) => toast({ variant: 'destructive', title: 'Not saved', description: err.message }),
   });
 
   const deleteMutation = useMutation<unknown, Error, string>({
     mutationFn: (id) =>
       fetch(`/api/universities/${id}`, { method: 'DELETE' }).then(async (r) => {
-        if (!r.ok) throw new Error((await r.json().catch(() => ({})))?.error ?? 'Could not delete');
-        return r.json();
+        if (!r.ok) throw new Error('Could not remove that university.');
       }),
     onSuccess: () => {
-      toast({ title: 'University removed' });
-      setDeleting(null);
       qc.invalidateQueries({ queryKey: ['manage-universities'] });
       qc.invalidateQueries({ queryKey: ['universities'] });
       qc.invalidateQueries({ queryKey: ['university-filters'] });
+      setDeleting(null);
+      toast({ title: 'University removed' });
     },
-    onError: (err) => toast({ variant: 'destructive', title: 'Delete failed', description: err.message }),
+    onError: (err) => toast({ variant: 'destructive', title: 'Not removed', description: err.message }),
   });
 
-  async function onFile(file: File) {
-    if (!file.name.toLowerCase().endsWith('.csv')) {
-      toast({ variant: 'destructive', title: 'Not a CSV', description: 'Export the sheet as CSV and upload that.' });
-      return;
-    }
-    const csv = await file.text();
-    importMutation.mutate({ fileName: file.name, csv });
-  }
-
-  const universities = data?.universities ?? [];
+  const universities = useMemo(() => {
+    const all = data?.universities ?? [];
+    const q = search.trim().toLowerCase();
+    if (!q) return all;
+    return all.filter((u) =>
+      [u.name, u.city, u.state].some((v) => (v ?? '').toLowerCase().includes(q)),
+    );
+  }, [data, search]);
 
   return (
     <div className="space-y-5 pb-8">
-      <div>
-        <h1 className="text-xl font-bold tracking-tight">Manage Universities</h1>
-        <p className="text-sm text-muted-foreground">
-          These are the universities counsellors see under College/Course Search.
-        </p>
-      </div>
-
-      {/* ── Import a whole workbook ── */}
-      <div className="rounded-xl border border-border/60 bg-card p-5">
-        <div className="mb-1 flex items-center gap-2">
-          <Link2 className="h-4 w-4 text-primary" />
-          <h2 className="text-sm font-bold">Import a Google Sheet</h2>
-        </div>
-        <p className="mb-3 text-xs text-muted-foreground">
-          One tab per university — every tab is imported in one go. The sheet must be shared
-          so that <span className="font-medium">anyone with the link can view</span> it.
-        </p>
-        <div className="flex flex-col gap-2 sm:flex-row">
-          <input
-            type="url"
-            value={sheetUrl}
-            onChange={(e) => setSheetUrl(e.target.value)}
-            placeholder="https://docs.google.com/spreadsheets/d/…"
-            className="h-9 flex-1 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
-          />
-          <button
-            onClick={() => sheetMutation.mutate(sheetUrl)}
-            disabled={!sheetUrl.trim() || sheetMutation.isPending}
-            className="inline-flex h-9 items-center justify-center gap-2 rounded-md bg-primary px-4 text-sm font-semibold text-primary-foreground disabled:opacity-60"
-          >
-            {sheetMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link2 className="h-4 w-4" />}
-            Import all tabs
-          </button>
-        </div>
-        {sheetMutation.isPending && (
-          <p className="mt-2 text-xs text-muted-foreground">
-            Reading every tab — a workbook of thirty or so takes a minute.
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-bold tracking-tight">Manage Universities</h1>
+          <p className="text-sm text-muted-foreground">
+            What counsellors see under College/Course Search. Everything here is typed in and
+            editable at any time.
           </p>
-        )}
+        </div>
+        <button
+          onClick={() => setCreating(true)}
+          className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground"
+        >
+          <Plus className="h-4 w-4" />
+          Add University
+        </button>
       </div>
 
-      {/* ── Per-tab outcome ── */}
-      {sheetResult && (
-        <div className="rounded-lg border border-border/60">
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-border/60 bg-muted/40 px-4 py-2.5 text-xs font-semibold">
-            <span>{sheetResult.tabs} tabs read</span>
-            <span className="text-emerald-600">{sheetResult.imported} imported</span>
-            <span className="text-blue-600">{sheetResult.replaced} updated</span>
-            <span className="text-muted-foreground">{sheetResult.skipped} skipped</span>
-            {sheetResult.failed > 0 && <span className="text-destructive">{sheetResult.failed} failed</span>}
-          </div>
-          <div className="max-h-80 overflow-y-auto">
-            {sheetResult.results.map((r, i) => (
-              <div key={i} className="flex items-start gap-2 border-b border-border/30 px-4 py-2 text-xs last:border-0">
-                {r.status === 'imported' || r.status === 'replaced'
-                  ? <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600" />
-                  : r.status === 'skipped'
-                    ? <MinusCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                    : <XCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-destructive" />}
-                <div className="min-w-0 flex-1">
-                  <p className="font-semibold">
-                    {r.tab}
-                    {r.university && r.university !== r.tab && (
-                      <span className="ml-1.5 font-normal text-muted-foreground">→ {r.university}</span>
-                    )}
-                  </p>
-                  {r.counts && (
-                    <p className="text-muted-foreground">
-                      {r.counts.programmes} programmes · {r.counts.fees} priced courses · {r.counts.specializations} specialisations · {r.counts.faqs} FAQs
-                    </p>
-                  )}
-                  {r.reason && <p className="text-muted-foreground">{r.reason}</p>}
-                  {r.warnings?.map((w, j) => (
-                    <p key={j} className="text-amber-700 dark:text-amber-400">{w}</p>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* ── Upload ── */}
-      <div className="rounded-xl border border-dashed border-border bg-muted/20 p-6 text-center">
+      <div className="relative max-w-sm">
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <input
-          ref={fileRef}
-          type="file"
-          accept=".csv,text/csv"
-          className="hidden"
-          onChange={(e) => { const f = e.target.files?.[0]; if (f) onFile(f); e.target.value = ''; }}
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search by name or place…"
+          className="h-9 w-full rounded-md border border-input bg-background pl-9 pr-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
         />
-        <Upload className="mx-auto mb-2 h-7 w-7 text-muted-foreground" />
-        <p className="text-sm font-semibold">Or upload a single university&apos;s CSV</p>
-        <p className="mx-auto mt-1 max-w-xl text-xs text-muted-foreground">
-          One file per university, laid out in numbered sections — download the sample to see
-          them. Uploading a university that is already here replaces its profile, which is how
-          you publish updated fees.
-        </p>
-        <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
-          <button
-            onClick={() => fileRef.current?.click()}
-            disabled={importMutation.isPending}
-            className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-60"
-          >
-            {importMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-            Choose CSV
-          </button>
-          {/*
-            A plain link, not a fetch-and-blob: the route sets the filename in
-            its Content-Disposition, so the browser does the download itself
-            and there is nothing to go wrong in between.
-
-            The file is generated by the server from the same module the
-            parser is tested against, so the template cannot drift away from
-            what the importer accepts.
-          */}
-          <a
-            href="/api/universities/sample"
-            download="university-profile-sample.csv"
-            className="inline-flex items-center gap-2 rounded-md border border-input px-4 py-2 text-sm font-semibold text-foreground hover:bg-muted/50"
-          >
-            <Download className="h-4 w-4" />
-            Download sample file
-          </a>
-        </div>
-
-        <p className="mx-auto mt-3 max-w-xl text-xs text-muted-foreground">
-          Every section is optional except the university&apos;s name — a sheet missing faculty or
-          scholarships imports fine and those parts simply do not appear.
-        </p>
       </div>
 
-      {/* ── What the last import did ── */}
-      {lastResult?.success && (
-        <div className="rounded-lg border border-emerald-500/40 bg-emerald-500/5 p-4">
-          <p className="flex items-center gap-2 text-sm font-semibold text-emerald-700 dark:text-emerald-400">
-            <CheckCircle2 className="h-4 w-4" />
-            {lastResult.replaced ? 'Replaced' : 'Imported'} {lastResult.university?.name}
-          </p>
-          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-            {Object.entries(lastResult.counts ?? {}).map(([k, v]) => (
-              <span key={k}>{v} {k.replace(/([A-Z])/g, ' $1').toLowerCase()}</span>
-            ))}
-          </div>
-          {(lastResult.warnings?.length ?? 0) > 0 && (
-            <div className="mt-3 space-y-1 border-t border-emerald-500/20 pt-2">
-              {lastResult.warnings!.map((w, i) => (
-                <p key={i} className="flex items-start gap-1.5 text-xs text-amber-700 dark:text-amber-400">
-                  <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />{w}
-                </p>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ── What is already here ── */}
       <div className="overflow-hidden rounded-lg border border-border/60">
         <table className="w-full border-collapse text-sm">
           <thead>
             <tr className="border-b border-border/60 bg-muted text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
               <th className="px-3 py-2.5 text-left">University</th>
               <th className="px-3 py-2.5 text-left">Location</th>
-              <th className="px-3 py-2.5 text-right">Programmes</th>
-              <th className="px-3 py-2.5 text-right">Priced courses</th>
-              <th className="px-3 py-2.5 text-left">Last import</th>
+              <th className="px-3 py-2.5 text-left">Sections filled</th>
+              <th className="px-3 py-2.5 text-left">Last edited</th>
+              <th className="px-3 py-2.5 text-center">Live</th>
               <th className="px-3 py-2.5" />
             </tr>
           </thead>
@@ -326,36 +166,69 @@ export default function ManageUniversitiesPage() {
             ) : universities.length === 0 ? (
               <tr><td colSpan={6} className="px-3 py-12 text-center">
                 <Building2 className="mx-auto mb-2 h-7 w-7 text-muted-foreground/50" />
-                <p className="text-sm font-medium">No universities yet.</p>
-                <p className="text-xs text-muted-foreground">Upload a CSV above and it will appear in College/Course Search.</p>
+                <p className="text-sm font-medium">
+                  {search ? 'Nothing matches that.' : 'No universities yet.'}
+                </p>
+                {!search && (
+                  <p className="text-xs text-muted-foreground">
+                    Add one and it will appear in College/Course Search.
+                  </p>
+                )}
               </td></tr>
             ) : universities.map((u) => (
               <tr key={u.id} className="border-b border-border/40 last:border-0 hover:bg-muted/20">
                 <td className="px-3 py-2.5">
-                  <p className="font-semibold">{u.name}</p>
-                  {u.sourceFile && (
-                    <p className="flex items-center gap-1 text-[11px] text-muted-foreground">
-                      <FileText className="h-3 w-3" />{u.sourceFile}
-                    </p>
+                  <Link
+                    href={`/dashboard/super-admin/manage-universities/${u.id}`}
+                    className="font-semibold hover:underline"
+                  >
+                    {u.name}
+                  </Link>
+                  {u.universityType && (
+                    <p className="text-[11px] text-muted-foreground">{u.universityType}</p>
                   )}
                 </td>
                 <td className="px-3 py-2.5 text-xs text-muted-foreground">
                   {[u.city, u.state].filter(Boolean).join(', ') || '—'}
                 </td>
-                <td className="px-3 py-2.5 text-right tabular-nums">{u._counts.programmes}</td>
-                <td className="px-3 py-2.5 text-right tabular-nums">{u._counts.fees}</td>
-                <td className="px-3 py-2.5 text-xs text-muted-foreground">
-                  {formatIstDateTime(u.importedAt)}
-                  {u.importedBy?.name && <span className="block">by {u.importedBy.name}</span>}
+                <td className="px-3 py-2.5">
+                  <SectionsFilled filled={u.sectionsFilled} />
                 </td>
-                <td className="px-3 py-2.5 text-right">
+                <td className="px-3 py-2.5 text-xs text-muted-foreground">
+                  {formatIstDateTime(u.updatedAt)}
+                  {u.updatedBy?.name && <span className="block">by {u.updatedBy.name}</span>}
+                </td>
+                <td className="px-3 py-2.5 text-center">
                   <button
-                    onClick={() => setDeleting(u)}
-                    aria-label={`Delete ${u.name}`}
-                    className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                    onClick={() => publishMutation.mutate({ row: u, isActive: !u.isActive })}
+                    title={u.isActive ? 'Live — click to hide from counsellors' : 'Hidden — click to publish'}
+                    aria-label={u.isActive ? `Unpublish ${u.name}` : `Publish ${u.name}`}
+                    className={`inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors ${
+                      u.isActive
+                        ? 'text-emerald-600 hover:bg-emerald-500/10'
+                        : 'text-muted-foreground hover:bg-muted'
+                    }`}
                   >
-                    <Trash2 className="h-3.5 w-3.5" />
+                    {u.isActive ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
                   </button>
+                </td>
+                <td className="px-3 py-2.5">
+                  <div className="flex items-center justify-end gap-1">
+                    <Link
+                      href={`/dashboard/super-admin/manage-universities/${u.id}`}
+                      aria-label={`Edit ${u.name}`}
+                      className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </Link>
+                    <button
+                      onClick={() => setDeleting(u)}
+                      aria-label={`Delete ${u.name}`}
+                      className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
@@ -363,12 +236,55 @@ export default function ManageUniversitiesPage() {
         </table>
       </div>
 
+      {/* ── Add ── */}
+      <Dialog open={creating} onOpenChange={(o) => { if (!o) { setCreating(false); setNewName(''); } }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle>Add a university</DialogTitle></DialogHeader>
+          <div className="space-y-2">
+            <label htmlFor="new-university-name" className="text-sm font-medium">University name</label>
+            <input
+              id="new-university-name"
+              autoFocus
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && newName.trim()) createMutation.mutate(newName.trim());
+              }}
+              placeholder="Amity University Online"
+              className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+            />
+            <p className="text-xs text-muted-foreground">
+              The rest of the profile is filled in on the next screen, and it stays hidden from
+              counsellors until you publish it.
+            </p>
+          </div>
+          <DialogFooter>
+            <button
+              onClick={() => { setCreating(false); setNewName(''); }}
+              className="rounded-md border border-input px-3 py-1.5 text-sm"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => createMutation.mutate(newName.trim())}
+              disabled={!newName.trim() || createMutation.isPending}
+              className="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-1.5 text-sm font-semibold text-primary-foreground disabled:opacity-60"
+            >
+              {createMutation.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              Create and edit
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Remove ── */}
       <Dialog open={!!deleting} onOpenChange={(o) => !o && setDeleting(null)}>
         <DialogContent className="max-w-md">
           <DialogHeader><DialogTitle>Remove {deleting?.name}?</DialogTitle></DialogHeader>
           <p className="text-sm text-muted-foreground">
-            Its programmes, fees, accreditations and everything else from that CSV go with it, and it
-            disappears from College/Course Search. Uploading the file again restores all of it.
+            Its programmes, fees, accreditations and everything else typed into it go with it,
+            and this cannot be undone. To take it off College/Course Search without losing the
+            work, use the Live toggle instead.
           </p>
           <DialogFooter>
             <button onClick={() => setDeleting(null)} className="rounded-md border border-input px-3 py-1.5 text-sm">Cancel</button>
@@ -383,6 +299,23 @@ export default function ManageUniversitiesPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+/** How much of a profile exists, as a bar rather than a bare fraction. */
+function SectionsFilled({ filled }: { filled: number }) {
+  const pct = Math.round((filled / TOTAL_SECTIONS) * 100);
+  const tone = filled === 0 ? 'bg-muted-foreground/30'
+    : pct < 40 ? 'bg-amber-500'
+    : pct < 80 ? 'bg-sky-500'
+    : 'bg-emerald-500';
+  return (
+    <div className="flex items-center gap-2">
+      <div className="h-1.5 w-20 overflow-hidden rounded-full bg-muted">
+        <div className={`h-full rounded-full ${tone}`} style={{ width: `${Math.max(pct, 2)}%` }} />
+      </div>
+      <span className="text-xs tabular-nums text-muted-foreground">{filled}/{TOTAL_SECTIONS}</span>
     </div>
   );
 }
