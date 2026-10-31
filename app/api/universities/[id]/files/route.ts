@@ -5,21 +5,25 @@ import { prisma } from '@/lib/prisma';
 import { hasPermission } from '@/lib/permissions';
 import { Feature } from '@prisma/client';
 import {
-  ALLOWED_DEGREE_IMAGE_TYPES,
-  MAX_DEGREE_IMAGE_SIZE,
-  degreeImageMatchesMagicBytes,
-  isAllowedDegreeImage,
-  saveDegreeImage,
+  UPLOAD_KINDS,
+  isAllowedUpload,
+  matchesMagicBytes,
+  saveUniversityFile,
   sanitizeDisplayFileName,
+  type UploadKind,
 } from '@/lib/university-storage';
 
 /**
- * Uploads a Sample Degree image and hands back a reference.
+ * Uploads a file for one row of a profile and hands back a reference.
  *
  * The file lands on disk now and the row that points at it is written when
  * the form is saved — the editor carries the returned path with the row. An
- * upload the data team then abandons is swept by pruneDegreeImages on the
+ * upload the data team then abandons is swept by pruneUniversityFiles on the
  * next save of that university.
+ *
+ * `kind` says what the row expects: an image for a sample degree, a document
+ * for a brochure. It decides the accepted types and the size limit, so a
+ * 20 MB prospectus is fine and a 20 MB certificate scan is not.
  */
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
@@ -35,6 +39,13 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     if (!university) return NextResponse.json({ error: 'University not found' }, { status: 404 });
 
     const formData = await req.formData();
+
+    const kind = String(formData.get('kind') ?? 'image') as UploadKind;
+    if (!(kind in UPLOAD_KINDS)) {
+      return NextResponse.json({ error: 'Unknown upload type' }, { status: 400 });
+    }
+    const rules = UPLOAD_KINDS[kind];
+
     const file = formData.get('file');
     if (!(file instanceof File)) {
       return NextResponse.json({ error: 'No file uploaded' }, { status: 400 });
@@ -42,23 +53,20 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     if (file.size === 0) {
       return NextResponse.json({ error: 'The file is empty' }, { status: 400 });
     }
-    if (file.size > MAX_DEGREE_IMAGE_SIZE) {
-      return NextResponse.json({ error: 'Images must be 8 MB or smaller' }, { status: 400 });
+    if (file.size > rules.maxSize) {
+      return NextResponse.json({ error: `Use ${rules.label}` }, { status: 400 });
     }
-    if (!isAllowedDegreeImage(file.type)) {
-      return NextResponse.json(
-        { error: `Use ${Object.keys(ALLOWED_DEGREE_IMAGE_TYPES).map((t) => t.split('/')[1].toUpperCase()).join(', ')}` },
-        { status: 400 },
-      );
+    if (!isAllowedUpload(kind, file.type)) {
+      return NextResponse.json({ error: `Use ${rules.label}` }, { status: 400 });
     }
 
     const bytes = Buffer.from(await file.arrayBuffer());
     // A file is what its first bytes say it is, not what the browser claims.
-    if (!degreeImageMatchesMagicBytes(file.type, bytes)) {
+    if (!matchesMagicBytes(file.type, bytes)) {
       return NextResponse.json({ error: 'File contents do not match its declared type' }, { status: 400 });
     }
 
-    const filePath = await saveDegreeImage(university.id, file.type, bytes);
+    const filePath = await saveUniversityFile(kind, university.id, file.type, bytes);
 
     return NextResponse.json({
       filePath,
@@ -66,7 +74,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       fileMimeType: file.type,
     }, { status: 201 });
   } catch (error) {
-    console.error('[universities/:id/sample-degree POST]', error);
+    console.error('[universities/:id/files POST]', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

@@ -6,7 +6,7 @@ import { useQuery } from '@tanstack/react-query';
 import {
   X, Mail, Phone, ExternalLink, MapPin, GraduationCap, Award, Users2,
   Wallet, HelpCircle, Train, Loader2, ChevronDown, BadgeCheck, CalendarDays,
-  Trophy, MonitorPlay, Briefcase, ScrollText, MessageCircle, Download,
+  Trophy, MonitorPlay, Briefcase, ScrollText, MessageCircle, Download, FileText,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -54,6 +54,7 @@ export interface UniversityDetail {
   learningFeatures: { id: string; feature: string; capability?: string | null; benefit?: string | null; officialLink?: string | null }[];
   careerServices: { id: string; feature: string; capability?: string | null; impact?: string | null; portalLink?: string | null }[];
   sampleDegrees: { id: string; title: string; description?: string | null; filePath?: string | null; fileOriginalName?: string | null }[];
+  brochures: { id: string; name: string; filePath?: string | null; fileOriginalName?: string | null }[];
 }
 
 /** Indian grouping, which is how every figure in here is quoted. */
@@ -370,6 +371,24 @@ function DetailRow({
 }
 
 /**
+ * What the browser should call the saved file.
+ *
+ * The route deliberately sends no filename — see the comment on ?download=1
+ * there — so the link supplies one: the name it was uploaded under, or a
+ * slug of the row's own title when that was lost.
+ */
+function downloadFileName(
+  row: { filePath?: string | null; fileOriginalName?: string | null },
+  title: string,
+  fallback: string,
+): string {
+  if (row.fileOriginalName) return row.fileOriginalName;
+  const extension = (row.filePath?.split('.').pop() ?? 'pdf').toLowerCase();
+  const slug = title.replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '').toLowerCase();
+  return `${slug || fallback}.${extension}`;
+}
+
+/**
  * A sample degree, presented the way the university's own site presents it:
  * the pitch on one side, the certificate on the other.
  *
@@ -384,15 +403,10 @@ function SampleDegreeBand({
   degree: UniversityDetail['sampleDegrees'][number];
 }) {
   const src = degree.filePath
-    ? `/api/universities/${universityId}/sample-degree/file?path=${encodeURIComponent(degree.filePath)}`
+    ? `/api/universities/${universityId}/files/file?path=${encodeURIComponent(degree.filePath)}`
     : null;
 
-  // The link names the file, because the route deliberately does not — see
-  // the comment on ?download=1 there.
-  const extension = (degree.filePath?.split('.').pop() ?? 'png').toLowerCase();
-  const downloadName =
-    degree.fileOriginalName ||
-    `${degree.title.replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '').toLowerCase() || 'sample-degree'}.${extension}`;
+  const downloadName = downloadFileName(degree, degree.title, 'sample-degree');
 
   return (
     <div
@@ -854,6 +868,44 @@ export function UniversityDetailPanel({
                   {data.sampleDegrees.map((d) => (
                     <SampleDegreeBand key={d.id} universityId={data.id} degree={d} />
                   ))}
+                </div>
+              </Section>
+            )}
+
+            {/* ── Brochures ── */}
+            {data.brochures.length > 0 && (
+              <Section title="Brochures" icon={FileText} count={data.brochures.length}>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  {data.brochures.map((b) => {
+                    const href = b.filePath
+                      ? `/api/universities/${data.id}/files/file?path=${encodeURIComponent(b.filePath)}`
+                      : null;
+                    return (
+                      <div
+                        key={b.id}
+                        className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/[0.04] px-3.5 py-3 shadow-sm"
+                      >
+                        <div className="flex min-w-0 items-center gap-2.5">
+                          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#e85a42]/12 ring-1 ring-inset ring-[#e85a42]/20">
+                            <FileText className="h-4 w-4 text-[#e85a42]" />
+                          </span>
+                          <p className="truncate text-sm font-semibold">{b.name}</p>
+                        </div>
+                        {/* No button at all when nothing was attached: a
+                            download that 404s is worse than a plain name. */}
+                        {href && (
+                          <a
+                            href={`${href}&download=1`}
+                            download={downloadFileName(b, b.name, 'brochure')}
+                            className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-[#e85a42] px-3.5 py-1.5 text-xs font-bold text-white transition-colors hover:bg-[#d44c35]"
+                          >
+                            <Download className="h-3.5 w-3.5" />
+                            Download
+                          </a>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </Section>
             )}

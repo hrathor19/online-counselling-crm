@@ -4,12 +4,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Plus, Trash2, Loader2, ChevronUp, ChevronDown, Save, ArrowLeft,
-  ImagePlus, X, ExternalLink, Eye, EyeOff,
+  ImagePlus, X, ExternalLink, Eye, EyeOff, Upload, FileText,
 } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 import {
-  UNIVERSITY_SECTIONS, UNIVERSITY_TYPES,
-  type FieldDef, type SectionDef,
+  UNIVERSITY_SECTIONS, UNIVERSITY_TYPES, UPLOAD_KINDS,
+  type FieldDef, type SectionDef, type UploadKind,
 } from '@/lib/university-fields';
 
 /**
@@ -103,7 +103,7 @@ export function UniversityEditor({ universityId, initial }: Props) {
     setSections((prev) => {
       const blank: Row = { _key: nextKey() };
       for (const f of section.fields) blank[f.key] = '';
-      if (section.key === 'sampleDegrees') blank.filePath = null;
+      if (section.upload) blank.filePath = null;
       return { ...prev, [section.key]: [...(prev[section.key] ?? []), blank] };
     });
   }, []);
@@ -368,9 +368,10 @@ function SectionCard({
                     onChange={(v) => onChange(i, { [field.key]: v })}
                   />
                 ))}
-                {section.key === 'sampleDegrees' && (
+                {section.upload && (
                   <div className="md:col-span-12">
-                    <DegreeImage
+                    <RowFile
+                      kind={section.upload}
                       universityId={universityId}
                       row={row}
                       onChange={(patch) => onChange(i, patch)}
@@ -453,16 +454,17 @@ function RowField({
 }
 
 /**
- * The Sample Degree image.
+ * The file attached to a row — a sample degree image, a brochure PDF.
  *
  * Uploaded on choosing the file rather than on save: the file goes to the
  * university's private folder straight away and the row carries the path it
- * came back with, so a long form does not have to hold megabytes of image in
- * memory until someone remembers to press Save.
+ * came back with, so a long form does not have to hold megabytes in memory
+ * until someone remembers to press Save.
  */
-function DegreeImage({
-  universityId, row, onChange,
+function RowFile({
+  kind, universityId, row, onChange,
 }: {
+  kind: UploadKind;
   universityId: string;
   row: Row;
   onChange: (patch: Record<string, any>) => void;
@@ -470,13 +472,15 @@ function DegreeImage({
   const { toast } = useToast();
   const inputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
+  const rules = UPLOAD_KINDS[kind];
 
   async function upload(file: File) {
     setUploading(true);
     try {
       const fd = new FormData();
       fd.append('file', file);
-      const res = await fetch(`/api/universities/${universityId}/sample-degree`, { method: 'POST', body: fd });
+      fd.append('kind', kind);
+      const res = await fetch(`/api/universities/${universityId}/files`, { method: 'POST', body: fd });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(typeof body?.error === 'string' ? body.error : 'Upload failed.');
       onChange({
@@ -492,29 +496,40 @@ function DegreeImage({
   }
 
   const src = row.filePath
-    ? `/api/universities/${universityId}/sample-degree/file?path=${encodeURIComponent(row.filePath)}`
+    ? `/api/universities/${universityId}/files/file?path=${encodeURIComponent(row.filePath)}`
     : null;
+  // Preview whatever can be drawn, whichever section it belongs to: a
+  // brochure uploaded as a JPG is still worth looking at before saving.
+  const isImage = !!row.filePath && /\.(png|jpe?g|webp)$/i.test(String(row.filePath));
 
   return (
     <div>
-      <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Image</p>
+      <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+        {kind === 'image' ? 'Image' : 'File'}
+      </p>
       <input
         ref={inputRef}
         type="file"
-        accept="image/png,image/jpeg,image/webp"
+        accept={Object.keys(rules.types).join(',')}
         className="hidden"
         onChange={(e) => { const f = e.target.files?.[0]; if (f) upload(f); e.target.value = ''; }}
       />
       {src ? (
         <div className="flex flex-wrap items-center gap-3">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={src}
-            alt={row.fileOriginalName || 'Sample degree'}
-            className="h-28 w-auto rounded-md border border-border/60 bg-background object-contain"
-          />
+          {isImage ? (
+            /* eslint-disable-next-line @next/next/no-img-element */
+            <img
+              src={src}
+              alt={row.fileOriginalName || 'Uploaded file'}
+              className="h-28 w-auto rounded-md border border-border/60 bg-background object-contain"
+            />
+          ) : (
+            <span className="flex h-12 w-12 items-center justify-center rounded-md border border-border/60 bg-background">
+              <FileText className="h-5 w-5 text-muted-foreground" />
+            </span>
+          )}
           <div className="space-y-1.5 text-xs">
-            <p className="text-muted-foreground">{row.fileOriginalName || 'Uploaded image'}</p>
+            <p className="text-muted-foreground">{row.fileOriginalName || 'Uploaded file'}</p>
             <div className="flex gap-2">
               <button
                 onClick={() => inputRef.current?.click()}
@@ -549,8 +564,10 @@ function DegreeImage({
           disabled={uploading}
           className="inline-flex items-center gap-2 rounded-md border border-dashed border-border px-4 py-3 text-xs font-semibold text-muted-foreground hover:bg-muted/40 disabled:opacity-60"
         >
-          {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImagePlus className="h-4 w-4" />}
-          {uploading ? 'Uploading…' : 'Upload image — PNG, JPG or WebP, up to 8 MB'}
+          {uploading
+            ? <Loader2 className="h-4 w-4 animate-spin" />
+            : kind === 'image' ? <ImagePlus className="h-4 w-4" /> : <Upload className="h-4 w-4" />}
+          {uploading ? 'Uploading…' : `Upload ${kind === 'image' ? 'image' : 'file'} — ${rules.label}`}
         </button>
       )}
     </div>

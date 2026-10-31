@@ -7,6 +7,46 @@
  * in three files.
  */
 
+/**
+ * What each kind of upload accepts, and the extension it is stored under.
+ *
+ * Here rather than in lib/university-storage.ts because the editor needs it
+ * to set an <input accept> and to word the hint, and that module imports
+ * fs — pulling it into a client component breaks the bundle.
+ */
+export const UPLOAD_KINDS = {
+  image: {
+    types: { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp' } as Record<string, string>,
+    maxSize: 8 * 1024 * 1024,
+    label: 'PNG, JPG or WebP, up to 8 MB',
+  },
+  // Brochures are PDFs as often as not, and are bigger: a prospectus with
+  // campus photography runs well past the 8 MB an image needs.
+  document: {
+    types: {
+      'application/pdf': 'pdf',
+      'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp',
+    } as Record<string, string>,
+    maxSize: 20 * 1024 * 1024,
+    label: 'PDF, PNG, JPG or WebP, up to 20 MB',
+  },
+} as const;
+
+export type UploadKind = keyof typeof UPLOAD_KINDS;
+
+export const ALL_STORED_EXTENSIONS = ['png', 'jpg', 'jpeg', 'webp', 'pdf'] as const;
+
+/** A stored path, as the editor sends it back: "<universityId>/<uuid>.<ext>". */
+export const STORED_PATH_PATTERN = new RegExp(
+  `^([a-z0-9]+)/([a-z0-9-]+)\\.(${ALL_STORED_EXTENSIONS.join('|')})$`,
+  'i',
+);
+
+export const MIME_BY_EXTENSION: Record<string, string> = {
+  png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',
+  webp: 'image/webp', pdf: 'application/pdf',
+};
+
 export const UNIVERSITY_TYPES = [
   'Public State University',
   'Central University',
@@ -44,6 +84,14 @@ export interface SectionDef {
   fields: FieldDef[];
   /** A fixed level stamped on every row of this section. */
   fixed?: Record<string, string>;
+  /**
+   * This section's rows carry an uploaded file.
+   *
+   * The row stores filePath / fileOriginalName / fileMimeType alongside its
+   * own columns, and the editor draws an upload control after the fields.
+   * 'image' previews inline; 'document' is listed by name.
+   */
+  upload?: UploadKind;
 }
 
 /**
@@ -190,10 +238,20 @@ export const UNIVERSITY_SECTIONS: SectionDef[] = [
   {
     key: 'sampleDegrees',
     title: 'Sample Degree',
-    hint: 'The image is uploaded per row once the university has been saved.',
+    hint: 'Shown to counsellors as a download, with the certificate beside it.',
+    upload: 'image',
     fields: [
       { key: 'title',       label: 'Title',       kind: 'text', required: true, width: 2 },
       { key: 'description', label: 'Description', kind: 'textarea', width: 3 },
+    ],
+  },
+  {
+    key: 'brochures',
+    title: 'Brochure',
+    hint: 'One row per brochure. Counsellors download these straight from the drawer.',
+    upload: 'document',
+    fields: [
+      { key: 'name', label: 'Name', kind: 'text', required: true, width: 2 },
     ],
   },
 ];
@@ -214,6 +272,7 @@ export const SECTION_TABLE: Record<string, { model: string; fixed?: Record<strin
   learningFeatures: { model: 'universityLearningFeature' },
   careerServices:   { model: 'universityCareerService' },
   sampleDegrees:    { model: 'universitySampleDegree' },
+  brochures:        { model: 'universityBrochure' },
 };
 
 /**

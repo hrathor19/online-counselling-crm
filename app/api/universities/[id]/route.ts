@@ -11,7 +11,7 @@ import {
   uniqueSlug,
   ProfileInputError,
 } from '@/lib/university-profile';
-import { pruneDegreeImages } from '@/lib/university-storage';
+import { pruneUniversityFiles } from '@/lib/university-storage';
 
 /**
  * One university's full profile — read by the detail panel, written by the
@@ -60,9 +60,9 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
  * Saves the whole profile over what is stored.
  *
  * The editor posts every section each time, so this replaces rather than
- * merges — see writeProfileSections. Images whose rows were removed are
+ * merges — see writeProfileSections. Files whose rows were removed are
  * deleted from disk afterwards, outside the transaction: a file left behind
- * is untidy, but a save rolled back because a stale file would not unlink is
+ * is untidy, but a save rolled back because a stale one would not unlink is
  * a lost afternoon of typing.
  */
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
@@ -120,8 +120,8 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
       return university;
     }, { timeout: 30000 });
 
-    await pruneDegreeImages(existing.id, profile.keptImagePaths).catch((e) =>
-      console.error('[universities/:id PUT] image prune failed', e),
+    await pruneUniversityFiles(existing.id, profile.keptFilePaths).catch((e: unknown) =>
+      console.error('[universities/:id PUT] file prune failed', e),
     );
 
     await logActivity({
@@ -194,8 +194,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
  *
  * A real delete, not a flag: isActive already exists for taking one off the
  * catalogue without losing the typing, so anyone reaching for Delete means
- * it. The cascade is declared on the child tables; the images have to be
- * swept by hand.
+ * it. The cascade is declared on the child tables; the uploaded files have
+ * to be swept by hand.
  */
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
   try {
@@ -211,7 +211,7 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
     if (!existing) return NextResponse.json({ error: 'University not found' }, { status: 404 });
 
     await prisma.university.delete({ where: { id: params.id } });
-    await pruneDegreeImages(existing.id, []).catch(() => {});
+    await pruneUniversityFiles(existing.id, []).catch(() => {});
 
     await logActivity({
       userId: session.user.id,

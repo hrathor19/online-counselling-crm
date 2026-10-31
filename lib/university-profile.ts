@@ -6,6 +6,7 @@ import {
   parseCountInput,
   splitCityState,
   slugify,
+  STORED_PATH_PATTERN,
   type SectionDef,
 } from './university-fields';
 
@@ -47,8 +48,8 @@ export interface NormalizedProfile {
   };
   /** section key → rows, already typed and ordered. */
   sections: Record<string, Record<string, unknown>[]>;
-  /** Every sample-degree image still referenced, for pruning the rest. */
-  keptImagePaths: string[];
+  /** Every uploaded file still referenced, for pruning the rest. */
+  keptFilePaths: string[];
 }
 
 const str = (v: unknown): string => (typeof v === 'string' ? v.trim() : v == null ? '' : String(v).trim());
@@ -85,7 +86,7 @@ export function normalizeProfile(body: any): NormalizedProfile {
   };
 
   const sections: Record<string, Record<string, unknown>[]> = {};
-  const keptImagePaths: string[] = [];
+  const keptFilePaths: string[] = [];
   const raw = body?.sections ?? {};
 
   for (const section of UNIVERSITY_SECTIONS) {
@@ -96,19 +97,19 @@ export function normalizeProfile(body: any): NormalizedProfile {
       throw new ProfileInputError(`${section.title}: more than ${MAX_ROWS_PER_SECTION} rows`);
     }
     sections[section.key] = input
-      .map((row) => normalizeRow(section, row, keptImagePaths))
+      .map((row) => normalizeRow(section, row, keptFilePaths))
       .filter((row): row is Record<string, unknown> => row !== null)
       .map((row, i) => ({ ...row, sortOrder: i }));
   }
 
-  return { header, sections, keptImagePaths };
+  return { header, sections, keptFilePaths };
 }
 
 /** A row, or null when its required column is blank — an untouched blank row. */
 function normalizeRow(
   section: SectionDef,
   row: any,
-  keptImagePaths: string[],
+  keptFilePaths: string[],
 ): Record<string, unknown> | null {
   if (!row || typeof row !== 'object') return null;
   const out: Record<string, unknown> = {};
@@ -136,16 +137,17 @@ function normalizeRow(
     }
   }
 
-  // The Sample Degree image is attached by its own upload route, so the
-  // editor carries the stored path back with the row rather than re-sending
-  // the file on every save.
-  if (section.key === 'sampleDegrees') {
+  // An uploaded file is attached by its own route, so the editor carries the
+  // stored path back with the row rather than re-sending the bytes on every
+  // save. Which sections have one is declared on the section, not listed
+  // here, so adding another is a one-line change there.
+  if (section.upload) {
     const filePath = str(row.filePath);
     if (filePath) {
-      if (!/^[a-z0-9]+\/[a-z0-9-]+\.(png|jpg|jpeg|webp)$/i.test(filePath)) {
-        throw new ProfileInputError('Sample Degree: unrecognised image reference');
+      if (!STORED_PATH_PATTERN.test(filePath)) {
+        throw new ProfileInputError(`${section.title}: unrecognised file reference`);
       }
-      keptImagePaths.push(filePath);
+      keptFilePaths.push(filePath);
       out.filePath = filePath;
       out.fileOriginalName = orNull(row.fileOriginalName, 200);
       out.fileMimeType = orNull(row.fileMimeType, 100);
@@ -226,6 +228,7 @@ export const PROFILE_INCLUDE = {
   learningFeatures: { orderBy: { sortOrder: 'asc' } },
   careerServices:   { orderBy: { sortOrder: 'asc' } },
   sampleDegrees:    { orderBy: { sortOrder: 'asc' } },
+  brochures:        { orderBy: { sortOrder: 'asc' } },
 } satisfies Prisma.UniversityInclude;
 
 /** Splits the shared fee table back into the two sections the form shows. */
@@ -245,5 +248,6 @@ export function toEditorSections(u: any): Record<string, any[]> {
     learningFeatures: u.learningFeatures ?? [],
     careerServices:   u.careerServices ?? [],
     sampleDegrees:    u.sampleDegrees ?? [],
+    brochures:        u.brochures ?? [],
   };
 }
