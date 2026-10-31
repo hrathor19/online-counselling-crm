@@ -6,7 +6,7 @@ import { useQuery } from '@tanstack/react-query';
 import {
   X, Mail, Phone, ExternalLink, MapPin, GraduationCap, Award, Users2,
   Wallet, HelpCircle, Train, Loader2, ChevronDown, BadgeCheck, CalendarDays,
-  Trophy, MonitorPlay, Briefcase, ScrollText, MessageCircle,
+  Trophy, MonitorPlay, Briefcase, ScrollText, MessageCircle, Download,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -365,6 +365,94 @@ function DetailRow({
       {shown.map((line, i) => (
         <p key={i} className="mt-1 whitespace-pre-line text-xs leading-relaxed text-muted-foreground">{line}</p>
       ))}
+    </div>
+  );
+}
+
+/**
+ * A sample degree, presented the way the university's own site presents it:
+ * the pitch on one side, the certificate on the other.
+ *
+ * This is the one thing in the drawer a counsellor sends to a student rather
+ * than reads out, so the download is the point of the band and not a detail
+ * tucked under the image.
+ */
+function SampleDegreeBand({
+  universityId, degree,
+}: {
+  universityId: string;
+  degree: UniversityDetail['sampleDegrees'][number];
+}) {
+  const src = degree.filePath
+    ? `/api/universities/${universityId}/sample-degree/file?path=${encodeURIComponent(degree.filePath)}`
+    : null;
+
+  // The link names the file, because the route deliberately does not — see
+  // the comment on ?download=1 there.
+  const extension = (degree.filePath?.split('.').pop() ?? 'png').toLowerCase();
+  const downloadName =
+    degree.fileOriginalName ||
+    `${degree.title.replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '').toLowerCase() || 'sample-degree'}.${extension}`;
+
+  return (
+    <div
+      className={cn(
+        // A deep plum rather than another grey card: this band is the one
+        // piece of the drawer meant to look like marketing, and the hue is
+        // the dark end of the same coral the accent comes from.
+        'overflow-hidden rounded-2xl border border-white/10 shadow-lg',
+        'bg-gradient-to-br from-[#2e1320] via-[#1f1419] to-zinc-900',
+      )}
+    >
+      <div
+        className={cn(
+          'grid items-center gap-6 p-6 sm:p-8',
+          // Two columns only when there is an image to put in the second
+          // one; a title and a paragraph alone read better full width.
+          src && 'md:grid-cols-2',
+        )}
+      >
+        <div>
+          <h4 className="text-2xl font-bold leading-tight tracking-tight text-zinc-50 sm:text-[28px]">
+            {degree.title}
+          </h4>
+          {degree.description && (
+            <p className="mt-3 max-w-md whitespace-pre-line text-sm leading-relaxed text-zinc-300">
+              {degree.description}
+            </p>
+          )}
+          {src && (
+            <a
+              href={`${src}&download=1`}
+              download={downloadName}
+              className="mt-6 inline-flex items-center gap-2 rounded-full bg-[#e85a42] px-5 py-2.5 text-sm font-bold text-white shadow-md transition-colors hover:bg-[#d44c35] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#e85a42] focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-900"
+            >
+              <Download className="h-4 w-4" />
+              Download Sample
+            </a>
+          )}
+        </div>
+
+        {src && (
+          // A mount rather than a bare image: the certificates are scans on
+          // white, and without something to sit in they float on the dark
+          // band looking like a mistake.
+          <div className="rounded-xl border border-white/15 bg-black/30 p-2 shadow-2xl ring-1 ring-inset ring-white/5">
+            {/*
+              A plain <img>, not next/image: the file is served by an
+              authenticated route from private storage, which the image
+              optimiser cannot fetch on the viewer's behalf.
+            */}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={src}
+              alt={degree.fileOriginalName || degree.title}
+              loading="lazy"
+              className="max-h-80 w-full rounded-lg object-contain"
+            />
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -762,31 +850,9 @@ export function UniversityDetailPanel({
             {/* ── Sample degree ── */}
             {data.sampleDegrees.length > 0 && (
               <Section title="Sample Degree" icon={ScrollText} count={data.sampleDegrees.length} tone="dark">
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="space-y-4">
                   {data.sampleDegrees.map((d) => (
-                    <div key={d.id} className="overflow-hidden rounded-xl border border-white/10 bg-white/[0.04] shadow-sm">
-                      {d.filePath && (
-                        /*
-                          A plain <img>, not next/image: the file is served by
-                          an authenticated route from private storage, which
-                          the image optimiser cannot fetch on the student's
-                          behalf.
-                        */
-                        /* eslint-disable-next-line @next/next/no-img-element */
-                        <img
-                          src={`/api/universities/${data.id}/sample-degree/file?path=${encodeURIComponent(d.filePath)}`}
-                          alt={d.fileOriginalName || d.title}
-                          loading="lazy"
-                          className="max-h-72 w-full bg-black/20 object-contain"
-                        />
-                      )}
-                      <div className="px-3.5 py-3">
-                        <p className="text-sm font-bold">{d.title}</p>
-                        {d.description && (
-                          <p className="mt-1 whitespace-pre-line text-xs leading-relaxed text-muted-foreground">{d.description}</p>
-                        )}
-                      </div>
-                    </div>
+                    <SampleDegreeBand key={d.id} universityId={data.id} degree={d} />
                   ))}
                 </div>
               </Section>

@@ -29,6 +29,17 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     const bytes = await readDegreeImage(filePath).catch(() => null);
     if (!bytes) return NextResponse.json({ error: 'File not found' }, { status: 404 });
 
+    /**
+     * ?download=1 saves the file instead of showing it.
+     *
+     * The header carries no filename on purpose. A filename in
+     * Content-Disposition wins over the link's own `download` attribute, and
+     * building one here would mean interpolating a stored string into a
+     * response header — so the bare `attachment` says "save this" and the
+     * link, which is same-origin, supplies the name.
+     */
+    const asDownload = req.nextUrl.searchParams.get('download') === '1';
+
     // Buffer is structurally a Uint8Array and is a valid Response body at
     // runtime; the ArrayBufferLike vs ArrayBuffer mismatch is a type-only
     // artifact, as in the receipts route.
@@ -36,6 +47,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
       headers: {
         'Content-Type': MIME_BY_EXT[match[3].toLowerCase()] ?? 'application/octet-stream',
         'Cache-Control': 'private, max-age=300',
+        ...(asDownload ? { 'Content-Disposition': 'attachment' } : {}),
       },
     });
   } catch (error) {
