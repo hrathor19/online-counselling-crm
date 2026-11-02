@@ -112,6 +112,38 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     });
     if (!referrer) return NextResponse.json({ error: 'Lead not found' }, { status: 404 });
 
+    /**
+     * Lead Source — the `campaign` column.
+     *
+     * A referral was being created with it blank, so these leads showed no
+     * source at all in All Leads, in the exports and in every report that
+     * groups by it. They have the most specific source of any lead we take:
+     * another lead named them.
+     *
+     * Spelled the way Manage Lead Sources spells it when that list carries a
+     * Referral entry, so the value matches the rest of the floor's data
+     * character for character; otherwise the plain word, because a source
+     * the admin has not configured is still better than an empty column.
+     */
+    const configuredSource = await prisma.dropdownOption.findFirst({
+      where: { type: 'LEAD_CODE', isActive: true, value: { equals: 'Referral', mode: 'insensitive' } },
+      select: { value: true },
+    });
+    const campaign = configuredSource?.value ?? 'Referral';
+
+    /**
+     * Zone and Deal Type come with the college, as they do everywhere else.
+     *
+     * The form picks from Manage Dropdowns → Colleges now, so the attributes
+     * an admin set against that college can be applied here exactly as CSV
+     * upload, the ingest API and Add Lead apply them. A referral was the one
+     * path that created a lead without them.
+     */
+    const collegeConfig = await prisma.dropdownOption.findFirst({
+      where: { type: 'COLLEGE', value: { equals: d.college, mode: 'insensitive' } },
+      select: { collegeZone: true, collegeDealType: true },
+    });
+
     const now = new Date();
 
     // The referred lead skips the usual upload → approval pipeline: it is
@@ -132,7 +164,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           college: d.college,
           kappCollegeId: d.kappCollegeId || null,
           category: d.category || null,
+          campaign,
           leadOrigin: 'Referral',
+          leadZone: collegeConfig?.collegeZone ?? null,
+          dealType: collegeConfig?.collegeDealType ?? null,
           referredById: referrer.id,
 
           status: 'APPROVED',
@@ -156,6 +191,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           state: true,
           course: true,
           college: true,
+          campaign: true,
           createdAt: true,
           assignedTo: { select: { id: true, name: true } },
         },

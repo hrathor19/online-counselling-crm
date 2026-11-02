@@ -1269,12 +1269,13 @@ interface ReferralForm {
   city: string;
   state: string;
   courseId: string;
-  collegeId: string;
+  /** The college NAME, as Manage Dropdowns spells it — not an LMS id. */
+  college: string;
   category: string;
 }
 
 const EMPTY_REFERRAL: ReferralForm = {
-  name: '', email: '', phone: '', city: '', state: '', courseId: '', collegeId: '', category: '',
+  name: '', email: '', phone: '', city: '', state: '', courseId: '', college: '', category: '',
 };
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -1300,13 +1301,25 @@ function ReferralsSection({ leadId }: { leadId: string }) {
     queryFn: () => fetch('/api/courses').then((r) => r.json()).then((d) => Array.isArray(d) ? d : []),
     staleTime: Infinity,
   });
-  const { data: collegesData = [] } = useQuery<StaticOption[]>({
-    queryKey: ['colleges'],
-    queryFn: () => fetch('/api/colleges').then((r) => r.json()).then((d) => Array.isArray(d) ? d : []),
+  /**
+   * Colleges from Manage Dropdowns, not from the LMS.
+   *
+   * /api/colleges proxies the LMS's own catalogue, which lists far more
+   * colleges than this team sells and spells them its own way. A referral
+   * captured against one of those would carry a college name that CSV
+   * upload and the ingest API would reject, and that no filter here would
+   * match. The Add Lead form reads the same managed list, so the two agree.
+   */
+  const { data: collegesData = [] } = useQuery<{ id: string; value: string }[]>({
+    queryKey: ['dropdown-colleges'],
+    queryFn: () => fetch('/api/dropdown-options?type=COLLEGE').then((r) => r.json()).then((d) => (Array.isArray(d) ? d : [])),
     staleTime: Infinity,
   });
   const courseOpts = useMemo(() => toOptionsFromStatic(coursesData), [coursesData]);
-  const collegeOpts = useMemo(() => toOptionsFromStatic(collegesData), [collegesData]);
+  const collegeOpts = useMemo(
+    () => (collegesData ?? []).map((c) => ({ value: c.value, label: c.value })),
+    [collegesData],
+  );
 
   function patchForm(updates: Partial<ReferralForm>) {
     setForm((f) => ({ ...f, ...updates }));
@@ -1326,7 +1339,7 @@ function ReferralsSection({ leadId }: { leadId: string }) {
     if (!form.city) errors.city = 'Select a city';
     if (!form.state) errors.state = 'Select a state';
     if (!form.courseId) errors.courseId = 'Select a course';
-    if (!form.collegeId) errors.collegeId = 'Select a college';
+    if (!form.college) errors.college = 'Select a college';
     setFieldErrors(errors);
     return Object.keys(errors).length === 0;
   }
@@ -1343,8 +1356,7 @@ function ReferralsSection({ leadId }: { leadId: string }) {
           city: form.city,
           state: form.state,
           course: courseOpts.find((o) => o.value === form.courseId)?.label ?? form.courseId,
-          college: collegeOpts.find((o) => o.value === form.collegeId)?.label ?? form.collegeId,
-          kappCollegeId: form.collegeId,
+          college: form.college,
           category: form.category || undefined,
         }),
       }).then(async (r) => {
@@ -1522,11 +1534,11 @@ function ReferralsSection({ leadId }: { leadId: string }) {
               <label className={LABEL_CLASS}>College Looking For <span className="text-destructive">*</span></label>
               <MultiSelect
                 options={collegeOpts}
-                selected={form.collegeId ? [form.collegeId] : []}
-                onChange={(v) => patchForm({ collegeId: v[v.length - 1] ?? '' })}
+                selected={form.college ? [form.college] : []}
+                onChange={(v) => patchForm({ college: v[v.length - 1] ?? '' })}
                 placeholder="Select college"
               />
-              {fieldErrors.collegeId && <p className="text-[11px] text-destructive">{fieldErrors.collegeId}</p>}
+              {fieldErrors.college && <p className="text-[11px] text-destructive">{fieldErrors.college}</p>}
             </div>
 
             <div className="space-y-1.5 sm:col-span-2">
