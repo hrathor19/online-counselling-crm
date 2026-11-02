@@ -5,8 +5,8 @@ import bcrypt from 'bcryptjs';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { assignableUserWhere } from '@/lib/assignable-users';
-import { Role, UserStatus, WorkType } from '@prisma/client';
-import { generateEmployeeCode, logActivity } from '@/lib/permissions';
+import { Role, UserStatus, WorkType, Feature } from '@prisma/client';
+import { generateEmployeeCode, hasPermission, logActivity } from '@/lib/permissions';
 import { sendWelcomeEmail } from '@/lib/welcome-email';
 
 // Optional, but must be a real 10-digit number when provided. An empty string
@@ -54,12 +54,39 @@ export async function GET(req: NextRequest) {
   const teamId = searchParams.get('teamId');
   const status = searchParams.get('status') as UserStatus | null;
 
-  // COUNSELLING_TL: their own agents, plus themselves — a TL works a queue of
-  // their own, so they have to be pickable in the Assign To list. The rule is
-  // shared with the assign endpoints so the picker cannot offer someone the
-  // API would then refuse. See lib/assignable-users.ts.
-  if (session.user.role === Role.COUNSELLING_TL) {
-    const agents = await prisma.user.findMany({
+  /**
+   * ?assignable=1 — everyone the caller may hand a lead to.
+   *
+   * The Assign Leads picker asks for this rather than for a role, because
+   * "who can receive a lead" is not a role: a Team Lead works a queue of
+   * their own, so they belong in the list beside their agents. Asking by
+   * role is what kept TLs out of it for a Super Admin — the picker offered
+   * only COUNSELLING_AGENT while the assign endpoints, reading the same
+   * rule from lib/assignable-users.ts, would happily have accepted a TL.
+   *
+   * A TL gets this shape whether or not they ask for it: their visibility of
+   * other users is exactly the set they may assign to.
+   */
+  const wantsAssignable =
+    searchParams.get('assignable') === '1' || session.user.role === Role.COUNSELLING_TL;
+
+  if (wantsAssignable) {
+    /**
+     * REPORTS is let through without ASSIGN_LEADS.
+     *
+     * It does not hold that permission and must not — it reads the pipeline
+     * rather than working it — but it has always needed this roster for the
+     * TL and agent filter dropdowns, and the assign endpoints refuse it on
+     * their own. Gating the read on the write permission would have taken
+     * those filters away.
+     */
+    const mayRead =
+      session.user.role === Role.REPORTS ||
+      (await hasPermission(session.user.role, Feature.ASSIGN_LEADS));
+    if (!mayRead) {
+      return NextResponse.json({ success: false, error: 'Unauthorized', code: 'UNAUTHORIZED' }, { status: 401 });
+    }
+    const assignees = await prisma.user.findMany({
       where: assignableUserWhere(session.user),
       select: {
         id: true, name: true, email: true, role: true, workType: true, isActive: true, status: true,
@@ -68,7 +95,7 @@ export async function GET(req: NextRequest) {
       },
       orderBy: { name: 'asc' },
     });
-    return NextResponse.json(agents);
+    return NextResponse.json(assignees);
   }
 
   // REPORTS is read-only but needs this list for TL/agent filter dropdowns

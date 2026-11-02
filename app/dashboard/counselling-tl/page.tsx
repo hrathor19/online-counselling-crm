@@ -37,7 +37,9 @@ interface Lead {
   _count: { feedbacks: number };
 }
 
-interface Agent { id: string; name: string; managedById?: string | null; _count: { assignedLeads: number } }
+// Anyone who can hold a lead — a counselling agent or a team lead. The name
+// is historical; `role` is what tells them apart.
+interface Agent { id: string; name: string; role?: string; managedById?: string | null; _count: { assignedLeads: number } }
 
 type AssignmentFilter = 'all' | 'unassigned' | 'assigned';
 
@@ -46,6 +48,22 @@ interface RRPreviewRow {
   name: string;
   current: number;
   willGet: number;
+}
+
+/**
+ * Marks a Team Lead in a list of people who can take leads.
+ *
+ * Without it a TL is just another name among their own agents, and the
+ * person assigning has no way to tell they are handing work to the lead
+ * rather than to the team.
+ */
+function RoleChip({ role }: { role?: string }) {
+  if (role !== 'COUNSELLING_TL') return null;
+  return (
+    <span className="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-primary">
+      TL
+    </span>
+  );
 }
 
 function computeRoundRobin(count: number, agents: Agent[]): RRPreviewRow[] {
@@ -468,7 +486,7 @@ function BulkAgentSelect({
               <input
                 autoFocus
                 className="w-full rounded-lg bg-muted/50 py-1.5 pl-8 pr-2 text-xs outline-none placeholder:text-muted-foreground"
-                placeholder="Search agents…"
+                placeholder="Search counsellors…"
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
               />
@@ -496,7 +514,7 @@ function BulkAgentSelect({
           {/* Options */}
           <div className="max-h-56 overflow-y-auto py-1">
             {filtered.length === 0 ? (
-              <p className="py-3 text-center text-xs text-muted-foreground">No agents found</p>
+              <p className="py-3 text-center text-xs text-muted-foreground">Nobody found</p>
             ) : (
               filtered.map((a) => {
                 const checked = selected.includes(a.id);
@@ -517,6 +535,7 @@ function BulkAgentSelect({
                       {checked && <Check className="h-2.5 w-2.5 text-primary-foreground" />}
                     </div>
                     <span className="flex-1 truncate text-left font-medium">{a.name}</span>
+                    <RoleChip role={a.role} />
                     <div className="flex items-center gap-1.5 shrink-0">
                       <div className="h-1 w-16 overflow-hidden rounded-full bg-muted">
                         <div
@@ -886,9 +905,19 @@ export default function CounsellingTLPage() {
     placeholderData: (prev) => prev,
   });
 
+  /**
+   * Everyone this caller may hand a lead to — agents AND team leads.
+   *
+   * Asked for by what they can do, not by their role. A TL carries a queue
+   * of their own, so a Super Admin must be able to pick one; asking for
+   * role=COUNSELLING_AGENT is what kept TLs out of this list while the
+   * assign endpoints would have accepted them, and what let the
+   * round-robin preview show a narrower list than the server actually
+   * deals to. See lib/assignable-users.ts.
+   */
   const { data: agents = [], refetch: refetchAgents } = useQuery<Agent[]>({
-    queryKey: ['tl-agents', session?.user?.id],
-    queryFn: () => fetch('/api/users?role=COUNSELLING_AGENT').then((r) => r.json()),
+    queryKey: ['tl-assignees', session?.user?.id],
+    queryFn: () => fetch('/api/users?assignable=1').then((r) => r.json()),
     enabled: !!session?.user?.id,
   });
 
@@ -929,10 +958,13 @@ export default function CounsellingTLPage() {
   const selUnassigned = selectedLeads.filter((l) => !l.assignedTo).length;
   const selAssigned   = selectedLeads.filter((l) =>  l.assignedTo).length;
 
-  // Agents available in the bulk-assign picker (filtered by selected TL when SUPER_ADMIN)
+  // Who the bulk picker offers, narrowed to the chosen TLs when SUPER_ADMIN.
+  // A TL is matched by their own id as well as by managedById: they lead the
+  // team rather than being managed by anyone, so filtering on managedById
+  // alone hid exactly the person the filter named.
   const bulkAvailableAgents = useMemo(() => {
     if (!showTlPicker || bulkTlIds.length === 0) return agents;
-    return agents.filter((a) => bulkTlIds.includes(a.managedById ?? ''));
+    return agents.filter((a) => bulkTlIds.includes(a.managedById ?? '') || bulkTlIds.includes(a.id));
   }, [agents, bulkTlIds, showTlPicker]);
 
   // The pool that will be used for round-robin: specific agents if chosen, else all available
@@ -1641,8 +1673,8 @@ export default function CounsellingTLPage() {
                   showTlPicker && bulkTlIds.length === 0
                     ? 'Select TL first…'
                     : bulkAvailableAgents.length > 0
-                      ? `All ${bulkAvailableAgents.length} agents`
-                      : 'No agents'
+                      ? `All ${bulkAvailableAgents.length} counsellors`
+                      : 'No counsellors'
                 }
               />
             </div>
@@ -1756,7 +1788,7 @@ export default function CounsellingTLPage() {
                 </div>
               </label>
             )}
-            <p className="text-sm text-muted-foreground">Select agent — lead count shown:</p>
+            <p className="text-sm text-muted-foreground">Select who takes it — lead count shown:</p>
             <div className="max-h-52 overflow-y-auto space-y-1.5 pr-1">
               {agents.map((a) => {
                 const isSelected = singleAgentId === a.id;
@@ -1770,7 +1802,10 @@ export default function CounsellingTLPage() {
                       isSelected ? 'border-primary bg-primary/5' : 'border-input hover:bg-muted/40',
                     )}
                   >
-                    <span className="font-medium">{a.name}</span>
+                    <span className="flex items-center gap-1.5 font-medium">
+                      {a.name}
+                      <RoleChip role={a.role} />
+                    </span>
                     <div className="flex items-center gap-2">
                       <div className="h-1.5 w-20 overflow-hidden rounded-full bg-muted">
                         <div
@@ -1834,13 +1869,13 @@ export default function CounsellingTLPage() {
             <p className="text-sm text-muted-foreground">
               <span className="font-semibold text-foreground">{selectedIds.length} leads</span> will be
               distributed across{' '}
-              <span className="font-semibold text-foreground">{rrAgents.length} agent{rrAgents.length !== 1 ? 's' : ''}</span>
-              {bulkAgentIds.length > 0 ? ' (selected agents)' : bulkAvailableAgents.length < agents.length ? ' (from selected TL)' : ''}{' '}
-              starting from the agent with the lowest current load.
+              <span className="font-semibold text-foreground">{rrAgents.length} counsellor{rrAgents.length !== 1 ? 's' : ''}</span>
+              {bulkAgentIds.length > 0 ? ' (selected)' : bulkAvailableAgents.length < agents.length ? ' (from selected TL)' : ''}{' '}
+              starting from the one with the lowest current load.
             </p>
             <div className="overflow-hidden rounded-lg border">
               <div className="grid grid-cols-4 gap-2 bg-muted/40 px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                <span className="col-span-2">Agent</span>
+                <span className="col-span-2">Counsellor</span>
                 <span className="text-center">Current</span>
                 <span className="text-center">+New → Total</span>
               </div>
@@ -1857,7 +1892,7 @@ export default function CounsellingTLPage() {
               ))}
             </div>
             <p className="text-xs text-muted-foreground">
-              Agents are sorted by current lead count (fewest first) to balance workload evenly.
+              Sorted by current lead count (fewest first) to balance workload evenly.
             </p>
           </div>
           <DialogFooter>
