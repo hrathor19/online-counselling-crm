@@ -80,23 +80,29 @@ async function loadFilterOptions() {
      */
     const clientTypes = [...COLLEGE_CLIENT_TYPES, UNSET_CLIENT_TYPE];
 
+    // `{ not: null }` above still lets a blank string ('') through — a distinct
+    // value in Postgres, not null. A Select option with an empty value crashes
+    // Radix's <Select.Item> at render, so strip blanks here rather than trust
+    // every consumer of this endpoint to guard against one.
+    const clean = (arr: string[]) => arr.filter(Boolean);
+
     return {
-      campaigns:            campaigns.map((r) => r.campaign!),
-      leadTypes:            leadTypes.map((r) => r.leadType!),
-      leadOrigins:          leadOrigins.map((r) => r.leadOrigin!),
-      leadZones:            leadZones.map((r) => r.leadZone!),
-      cities:               cities.map((r) => r.city!),
-      states:               states.map((r) => r.state!),
-      colleges:             colleges.map((r) => r.college!),
-      courses:              courses.map((r) => r.course!),
-      leadConfirmations:    leadConfirmations.map((r) => r.leadConfirmation!),
-      leadVerifications:    leadVerifications.map((r) => r.leadVerification!),
-      dataCallingTypes:     dataCallingTypes.map((r) => r.dataCallingType!),
-      primaryAppConfirms:   primaryAppConfirms.map((r) => r.primaryApplicationConfirm!),
-      primaryAdmConfirms:   primaryAdmConfirms.map((r) => r.primaryAdmissionConfirm!),
+      campaigns:            clean(campaigns.map((r) => r.campaign!)),
+      leadTypes:            clean(leadTypes.map((r) => r.leadType!)),
+      leadOrigins:          clean(leadOrigins.map((r) => r.leadOrigin!)),
+      leadZones:            clean(leadZones.map((r) => r.leadZone!)),
+      cities:               clean(cities.map((r) => r.city!)),
+      states:               clean(states.map((r) => r.state!)),
+      colleges:             clean(colleges.map((r) => r.college!)),
+      courses:              clean(courses.map((r) => r.course!)),
+      leadConfirmations:    clean(leadConfirmations.map((r) => r.leadConfirmation!)),
+      leadVerifications:    clean(leadVerifications.map((r) => r.leadVerification!)),
+      dataCallingTypes:     clean(dataCallingTypes.map((r) => r.dataCallingType!)),
+      primaryAppConfirms:   clean(primaryAppConfirms.map((r) => r.primaryApplicationConfirm!)),
+      primaryAdmConfirms:   clean(primaryAdmConfirms.map((r) => r.primaryAdmissionConfirm!)),
       clientTypes,
-      leadStages:           leadStages.map((r) => r.leadStage!),
-      dealTypes:            dealTypes.map((r) => r.dealType!),
+      leadStages:           clean(leadStages.map((r) => r.leadStage!)),
+      dealTypes:            clean(dealTypes.map((r) => r.dealType!)),
     };
   }
 }
