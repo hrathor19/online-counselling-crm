@@ -726,7 +726,7 @@ export default function DashboardPage() {
   // Counselling Agents shouldn't see or filter by lead-source info they have
   // no use for.
   const showLeadType    = role !== 'COUNSELLING_AGENT';
-  const showTopAgents = (role === 'SUPER_ADMIN' || role === 'COUNSELLING_TL') && topAgents.length > 0;
+  const showTopAgents = (role === 'SUPER_ADMIN' || role === 'REPORTS' || role === 'COUNSELLING_TL') && topAgents.length > 0;
   const showFeedback = feedbackBreakdown.length > 0;
 
   const hasActiveFilters = Object.values(appliedFilters).some((v) => v.length > 0);
