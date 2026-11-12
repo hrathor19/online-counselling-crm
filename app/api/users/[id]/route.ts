@@ -140,6 +140,22 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       }
     }
 
+    // Promoting an existing user to Team Lead has to give them a team to
+    // actually lead, the same as creating one fresh already does (see POST
+    // /api/users) — otherwise they stay a TL with no Team row: invisible on
+    // the Teams page, unselectable anywhere a team is picked, and their
+    // agents' teamId stuck pointing at whatever team they used to belong to.
+    if (effectiveRole === Role.COUNSELLING_TL) {
+      const ledTeam = await tx.team.findFirst({ where: { teamLeadId: params.id }, select: { id: true } });
+      if (!ledTeam) {
+        const team = await tx.team.create({
+          data: { name: `${u.name}'s Team`, teamLeadId: params.id, createdById: session.user.id },
+        });
+        await tx.user.update({ where: { id: params.id }, data: { teamId: team.id } });
+        moveNote += ` — created "${team.name}" for their new role`;
+      }
+    }
+
     const action = isActive === false ? 'USER_DEACTIVATED' : 'USER_UPDATED';
     await logActivity({
       userId: session.user.id,
