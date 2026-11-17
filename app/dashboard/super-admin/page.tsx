@@ -83,7 +83,28 @@ interface UserRecord {
   managedById?: string | null;
   managerId?: string | null;
   managedBy?: { id: string; name: string } | null;
+  manager?: { id: string; name: string } | null;
   _count: { assignedLeads: number };
+}
+
+/** Roles that report to a Super Admin. Agents report to a Team Lead instead,
+ * and a Super Admin reports to no one. */
+const REPORTS_TO_SUPER_ADMIN = ['REPORTS', 'OPERATIONS', 'COUNSELLING_TL'];
+
+/**
+ * Only the field that belongs to the role is sent, so a value picked before
+ * the role was switched can never be saved against the wrong kind of user.
+ * `undefined` is dropped from the JSON, which leaves the stored value alone.
+ */
+function reportingLine(role: string, managedById?: string, managerId?: string) {
+  if (role === 'COUNSELLING_AGENT') return { managedById };
+  if (role === 'SUPER_ADMIN') return { managedById: null, managerId: null };
+  return { managedById: null, managerId };
+}
+
+/** Who the Manager column names: an agent's Team Lead, otherwise the reporting manager. */
+function managerName(u: UserRecord): string {
+  return (u.role === 'COUNSELLING_AGENT' ? u.managedBy?.name : u.manager?.name) ?? '';
 }
 
 const ROLE_LABELS: Record<string, string> = {
@@ -115,7 +136,10 @@ export default function SuperAdminPage() {
     queryFn: () => fetch('/api/users?role=COUNSELLING_TL').then((r) => r.json()),
   });
 
-  const { register, handleSubmit, setValue, reset, watch, formState: { errors } } = useForm<UserForm>({
+  const activeTls = tls.filter((u) => u.isActive);
+  const superAdmins = users.filter((u) => u.role === 'SUPER_ADMIN' && u.isActive);
+
+  const { register, handleSubmit, setValue, setError, clearErrors, reset, watch, formState: { errors } } = useForm<UserForm>({
     resolver: zodResolver(userSchema),
     defaultValues: { joiningDate: new Date().toISOString().slice(0, 10) },
   });
@@ -136,8 +160,11 @@ export default function SuperAdminPage() {
       phone: user.phone ?? '',
       role: user.role as typeof ROLES[number],
       workType: user.workType,
-      managedById: user.managedById ?? undefined,
-      managerId: user.managerId ?? undefined,
+      // A stored value the dropdown no longer offers (a deactivated lead, a
+      // manager who is not a Super Admin) is left out, so saving an unrelated
+      // edit neither re-submits it nor silently clears it.
+      managedById: activeTls.some((t) => t.id === user.managedById) ? user.managedById ?? undefined : undefined,
+      managerId: superAdmins.some((s) => s.id === user.managerId && s.id !== user.id) ? user.managerId ?? undefined : undefined,
       joiningDate: user.joiningDate ? new Date(user.joiningDate).toISOString().slice(0, 10) : '',
     });
     setEditUser(user);
@@ -146,8 +173,8 @@ export default function SuperAdminPage() {
   const updateMutation = useMutation({
     mutationFn: ({ id, data }: { id: string; data: EditForm }) => {
       // Omit password entirely unless the admin actually set a new one.
-      const { password, ...rest } = data;
-      const payload: Record<string, unknown> = { ...rest };
+      const { password, managedById, managerId, ...rest } = data;
+      const payload: Record<string, unknown> = { ...rest, ...reportingLine(data.role, managedById, managerId) };
       if (password) payload.password = password;
       return fetch(`/api/users/${id}`, {
         method: 'PATCH',
@@ -171,7 +198,7 @@ export default function SuperAdminPage() {
     mutationFn: (data: UserForm) =>
       fetch('/api/users', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) }).then((r) => r.json()),
     onSuccess: (data) => {
-      if (data.error) { toast({ variant: 'destructive', title: 'Error', description: JSON.stringify(data.error) }); return; }
+      if (data.error) { toast({ variant: 'destructive', title: 'Error', description: typeof data.error === 'string' ? data.error : JSON.stringify(data.error) }); return; }
       toast({ variant: 'default', title: 'User created' });
       queryClient.invalidateQueries({ queryKey: ['users'] });
       setShowCreateDialog(false);
@@ -200,7 +227,7 @@ export default function SuperAdminPage() {
         u.name.toLowerCase().includes(q) ||
         u.email.toLowerCase().includes(q) ||
         u.role.toLowerCase().includes(q) ||
-        (u.managedBy?.name ?? '').toLowerCase().includes(q)
+        managerName(u).toLowerCase().includes(q)
       );
     }
     return true;
@@ -208,7 +235,13 @@ export default function SuperAdminPage() {
 
   const activeFilters = (roleFilter !== 'ALL' ? 1 : 0) + (statusFilter !== 'ALL' ? 1 : 0) + (typeFilter !== 'ALL' ? 1 : 0);
 
-  const onSubmit = (data: UserForm) => createMutation.mutate(data);
+  const onSubmit = ({ managedById, managerId, ...rest }: UserForm) => {
+    if (rest.role === 'COUNSELLING_AGENT' && !managedById) {
+      setError('managedById', { message: 'Select the Team Lead this agent reports to' });
+      return;
+    }
+    createMutation.mutate({ ...rest, ...reportingLine(rest.role, managedById, managerId) } as UserForm);
+  };
 
   return (
     <div className="space-y-6">
@@ -325,7 +358,7 @@ export default function SuperAdminPage() {
                         {user.workType}
                       </Badge>
                     </TableCell>
-                    <TableCell className="whitespace-nowrap">{user.managedBy?.name ?? '—'}</TableCell>
+                    <TableCell className="whitespace-nowrap">{managerName(user) || '—'}</TableCell>
                     <TableCell className="text-right tabular-nums">{user._count.assignedLeads}</TableCell>
                     <TableCell>
                       <Badge variant={user.isActive ? 'success' : 'outline'}>
@@ -442,29 +475,31 @@ export default function SuperAdminPage() {
             </div>
             {watchRole === 'COUNSELLING_AGENT' && (
               <div className="space-y-2">
-                <Label>Assign to TL</Label>
-                <Select onValueChange={(v) => setValue('managedById', v)}>
+                <Label>Team Lead</Label>
+                <Select onValueChange={(v) => { setValue('managedById', v); clearErrors('managedById'); }}>
                   <SelectTrigger>
-                    <SelectValue placeholder="Select TL" />
+                    <SelectValue placeholder="Select Team Lead" />
                   </SelectTrigger>
                   <SelectContent>
-                    {tls.map((tl) => (
+                    {activeTls.map((tl) => (
                       <SelectItem key={tl.id} value={tl.id}>{tl.name}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
+                {activeTls.length === 0 && <p className="text-xs text-muted-foreground">No active Team Lead yet — create one first.</p>}
+                {errors.managedById && <p className="text-xs text-destructive">{errors.managedById.message}</p>}
               </div>
             )}
-            {watchRole && watchRole !== 'COUNSELLING_AGENT' && (
+            {REPORTS_TO_SUPER_ADMIN.includes(watchRole) && (
               <div className="space-y-2">
                 <Label>Reporting Manager (optional)</Label>
                 <Select onValueChange={(v) => setValue('managerId', v)}>
                   <SelectTrigger>
-                    <SelectValue placeholder="Select manager" />
+                    <SelectValue placeholder="Select Super Admin" />
                   </SelectTrigger>
                   <SelectContent>
-                    {users.map((u) => (
-                      <SelectItem key={u.id} value={u.id}>{u.name} — {ROLE_LABELS[u.role] ?? u.role}</SelectItem>
+                    {superAdmins.map((u) => (
+                      <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -557,25 +592,25 @@ export default function SuperAdminPage() {
             </div>
             {editRole === 'COUNSELLING_AGENT' && (
               <div className="space-y-2">
-                <Label>Assign to TL</Label>
+                <Label>Team Lead</Label>
                 <Select value={editForm.watch('managedById') ?? undefined} onValueChange={(v) => editForm.setValue('managedById', v)}>
-                  <SelectTrigger><SelectValue placeholder="Select TL" /></SelectTrigger>
+                  <SelectTrigger><SelectValue placeholder="Select Team Lead" /></SelectTrigger>
                   <SelectContent>
-                    {tls.map((tl) => (
+                    {activeTls.filter((tl) => tl.id !== editUser?.id).map((tl) => (
                       <SelectItem key={tl.id} value={tl.id}>{tl.name}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
             )}
-            {editRole && editRole !== 'COUNSELLING_AGENT' && (
+            {REPORTS_TO_SUPER_ADMIN.includes(editRole) && (
               <div className="space-y-2">
                 <Label>Reporting Manager (optional)</Label>
                 <Select value={editForm.watch('managerId') ?? undefined} onValueChange={(v) => editForm.setValue('managerId', v)}>
-                  <SelectTrigger><SelectValue placeholder="Select manager" /></SelectTrigger>
+                  <SelectTrigger><SelectValue placeholder="Select Super Admin" /></SelectTrigger>
                   <SelectContent>
-                    {users.filter((u) => u.id !== editUser?.id).map((u) => (
-                      <SelectItem key={u.id} value={u.id}>{u.name} — {ROLE_LABELS[u.role] ?? u.role}</SelectItem>
+                    {superAdmins.filter((u) => u.id !== editUser?.id).map((u) => (
+                      <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>

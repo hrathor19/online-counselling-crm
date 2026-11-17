@@ -8,6 +8,8 @@ import { assignableUserWhere } from '@/lib/assignable-users';
 import { Role, UserStatus, WorkType, Feature } from '@prisma/client';
 import { generateEmployeeCode, hasPermission, logActivity } from '@/lib/permissions';
 import { sendWelcomeEmail } from '@/lib/welcome-email';
+import { reportingLineError } from '@/lib/reporting-line';
+import { findTeamLedBy } from '@/lib/team-sync';
 
 // Optional, but must be a real 10-digit number when provided. An empty string
 // stores NULL rather than "". Matches the referral form's existing rule in
@@ -117,6 +119,7 @@ export async function GET(req: NextRequest) {
       employeeCode: true, phone: true, joiningDate: true, createdAt: true, zone: true, language: true,
       managedById: true, managerId: true, teamId: true, operationsGroupId: true,
       managedBy: { select: { id: true, name: true } },
+      manager: { select: { id: true, name: true } },
       team: { select: { id: true, name: true } },
       operationsGroup: { select: { id: true, name: true } },
       _count: { select: { assignedLeads: true } },
@@ -150,9 +153,18 @@ export async function POST(req: NextRequest) {
   const hashed = await bcrypt.hash(password, 12);
   const employeeCode = await generateEmployeeCode();
 
-  // An agent's "manager" is the TL they're assigned to, unless a different
-  // reporting manager was explicitly picked in the form.
-  const managerId = data.managerId ?? (data.role === Role.COUNSELLING_AGENT ? data.managedById : undefined);
+  const isAgent = data.role === Role.COUNSELLING_AGENT;
+  if (isAgent && !data.managedById) {
+    return NextResponse.json({ success: false, error: 'Select the Team Lead this agent reports to', code: 'VALIDATION_ERROR' }, { status: 400 });
+  }
+  // An agent's manager is always their Team Lead — the two fields must agree
+  // (see lib/team-sync.ts) — so whatever was sent as managerId is ignored.
+  const managedById = isAgent ? data.managedById : null;
+  const managerId = isAgent ? data.managedById : data.managerId ?? null;
+  const lineError = await reportingLineError(prisma, data.role, { managedById, managerId });
+  if (lineError) {
+    return NextResponse.json({ success: false, error: lineError, code: 'VALIDATION_ERROR' }, { status: 400 });
+  }
 
   const user = await prisma.$transaction(async (tx) => {
     const u = await tx.user.create({
@@ -160,6 +172,7 @@ export async function POST(req: NextRequest) {
         ...data,
         zone:     data.zone?.trim() || null,
         language: data.language?.trim() || null,
+        managedById,
         managerId,
         password: hashed,
         employeeCode,
@@ -187,12 +200,9 @@ export async function POST(req: NextRequest) {
 
     // When creating an agent under a TL, auto-set teamId from TL's team
     if (data.role === Role.COUNSELLING_AGENT && data.managedById && !data.teamId) {
-      const tlUser = await tx.user.findUnique({
-        where: { id: data.managedById },
-        select: { teamId: true },
-      });
-      if (tlUser?.teamId) {
-        await tx.user.update({ where: { id: u.id }, data: { teamId: tlUser.teamId } });
+      const tlTeamId = await findTeamLedBy(tx, data.managedById);
+      if (tlTeamId) {
+        await tx.user.update({ where: { id: u.id }, data: { teamId: tlTeamId } });
       }
     }
 

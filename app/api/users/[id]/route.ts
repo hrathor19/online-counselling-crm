@@ -7,6 +7,7 @@ import { prisma } from '@/lib/prisma';
 import { Role, WorkType } from '@prisma/client';
 import { logActivity } from '@/lib/permissions';
 import { moveAgentToTeamLead, moveAgentToTeam } from '@/lib/team-sync';
+import { reportingLineError } from '@/lib/reporting-line';
 
 // Optional, but must be a real 10-digit number when provided. An empty string
 // becomes NULL so clearing the field in the edit form actually clears it —
@@ -112,6 +113,18 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   const reconcileByTeam    = effectiveRole === Role.COUNSELLING_AGENT && 'teamId' in parsed.data;
   if (reconcileByManager) { delete updateData.managedById; delete updateData.managerId; delete updateData.teamId; }
   else if (reconcileByTeam) { delete updateData.teamId; delete updateData.managedById; delete updateData.managerId; }
+  // An agent's managerId only ever mirrors their Team Lead, via lib/team-sync.
+  if (effectiveRole === Role.COUNSELLING_AGENT) delete updateData.managerId;
+
+  const lineError = await reportingLineError(
+    prisma,
+    effectiveRole,
+    { managedById: parsed.data.managedById, managerId: effectiveRole === Role.COUNSELLING_AGENT ? null : parsed.data.managerId },
+    params.id,
+  );
+  if (lineError) {
+    return NextResponse.json({ success: false, error: lineError, code: 'VALIDATION_ERROR' }, { status: 400 });
+  }
 
   // Same NULL-not-empty-string rule as on create — see app/api/users/route.ts.
   if ('zone' in parsed.data)     updateData.zone     = parsed.data.zone?.trim() || null;
