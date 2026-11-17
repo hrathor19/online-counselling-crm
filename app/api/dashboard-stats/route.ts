@@ -133,10 +133,10 @@ export async function GET(request: Request) {
       // Team scope  = leads assigned to THIS team's agents
       scopeWhere = {};
       teamScopeWhere = { assignedToId: { in: teamAgentIds } };
-    } else if (role === 'OPERATIONS') {
-      scopeWhere = { uploadedById: userId };
     } else {
-      // SUPER_ADMIN, REPORTS
+      // SUPER_ADMIN, REPORTS, OPERATIONS — Operations reads the whole pipeline
+      // (see lib/lead-access.ts), so its dashboard must count the same leads
+      // its All Leads page shows, not only the ones it uploaded.
       const counts = await Promise.all([
         prisma.user.count({ where: { role: 'COUNSELLING_AGENT', isActive: true } }),
         prisma.user.count({ where: { role: 'COUNSELLING_TL', isActive: true } }),
@@ -158,7 +158,7 @@ export async function GET(request: Request) {
       teamAssignedCount,   // team-scoped for TL; equals mainWhere for all other roles
       connectedLeads,
       untouchedLeads,
-      unassignedLeadsRaw,  // only computed for SA / Reports / TL
+      unassignedLeadsRaw,  // only computed for SA / Reports / Ops / TL
       nonTeamAssignedRaw,  // only computed for SA / Reports / Ops
       applications,        // leads with at least one Application receipt uploaded
       admissions,          // leads with at least one Admission receipt uploaded
@@ -166,7 +166,7 @@ export async function GET(request: Request) {
       prisma.lead.count({ where: teamWhere }),
       prisma.lead.count({ where: { ...teamWhere, feedbacks: { some: {} } } }),
       prisma.lead.count({ where: { ...teamWhere, feedbacks: { none: {} } } }),
-      role === 'SUPER_ADMIN' || role === 'REPORTS' || role === 'COUNSELLING_TL'
+      role === 'SUPER_ADMIN' || role === 'REPORTS' || role === 'OPERATIONS' || role === 'COUNSELLING_TL'
         ? prisma.lead.count({ where: { ...mainWhere, assignedToId: null } })
         : Promise.resolve(0),
       role === 'COUNSELLING_TL' || role === 'COUNSELLING_AGENT'
@@ -292,8 +292,7 @@ export async function GET(request: Request) {
      */
     const sparkLeadScope: Prisma.Sql =
       role === 'COUNSELLING_AGENT' ? Prisma.sql`AND l."assignedToId" = ${userId}`
-      : role === 'OPERATIONS'      ? Prisma.sql`AND l."uploadedById" = ${userId}`
-      : Prisma.empty;                       // SUPER_ADMIN, REPORTS, TL: unscoped
+      : Prisma.empty;                       // SUPER_ADMIN, REPORTS, OPERATIONS, TL: unscoped
 
     /**
      * A TL is scoped to their team even when that team is empty.
@@ -333,15 +332,12 @@ export async function GET(request: Request) {
       prisma.$queryRaw<DayCount[]>(Prisma.sql`
         SELECT to_char(f."createdAt" + ${ISTDAY}, 'YYYY-MM-DD') AS day, count(*)::int AS n
         FROM "LeadFeedback" f
-        ${role === 'OPERATIONS' ? Prisma.sql`JOIN "Lead" l ON l.id = f."leadId"` : Prisma.empty}
         WHERE f."createdAt" >= ${sparkFrom}::timestamp
           ${role === 'COUNSELLING_AGENT'
             ? Prisma.sql`AND f."agentId" = ${userId}`
-            : role === 'OPERATIONS'
-              ? Prisma.sql`AND l."uploadedById" = ${userId}`
-              : teamAgentIds.length > 0
-                ? Prisma.sql`AND f."agentId" IN (${Prisma.join(teamAgentIds)})`
-                : Prisma.empty}
+            : teamAgentIds.length > 0
+              ? Prisma.sql`AND f."agentId" IN (${Prisma.join(teamAgentIds)})`
+              : Prisma.empty}
         GROUP BY 1`),
     ]);
 
