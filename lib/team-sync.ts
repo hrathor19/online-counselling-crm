@@ -142,3 +142,29 @@ export async function syncTeamMembersToLead(
   });
   return count;
 }
+
+/**
+ * Hands every lead a user holds back to the unassigned pool — for when that
+ * user is deactivated. Same effect as the manual Bulk Unassign: the assignee
+ * and team stamp are cleared (so any Team Lead can see and re-assign the lead)
+ * and the follow-up calls the person had pending are cancelled, since nobody
+ * is left to make them.
+ */
+export async function unassignLeadsOf(
+  tx: Prisma.TransactionClient,
+  userId: string,
+): Promise<number> {
+  const held = await tx.lead.findMany({ where: { assignedToId: userId }, select: { id: true } });
+  if (held.length === 0) return 0;
+  const ids = held.map((l) => l.id);
+
+  await tx.scheduledCall.updateMany({
+    where: { leadId: { in: ids }, status: 'PENDING' },
+    data: { status: 'CANCELLED' },
+  });
+  const { count } = await tx.lead.updateMany({
+    where: { id: { in: ids } },
+    data: { assignedToId: null, teamId: null },
+  });
+  return count;
+}

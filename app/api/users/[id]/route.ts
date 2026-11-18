@@ -6,7 +6,7 @@ import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { Role, WorkType } from '@prisma/client';
 import { logActivity } from '@/lib/permissions';
-import { moveAgentToTeamLead, moveAgentToTeam } from '@/lib/team-sync';
+import { moveAgentToTeamLead, moveAgentToTeam, unassignLeadsOf } from '@/lib/team-sync';
 import { reportingLineError } from '@/lib/reporting-line';
 
 // Optional, but must be a real 10-digit number when provided. An empty string
@@ -169,6 +169,13 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       }
     }
 
+    // A deactivated user can no longer work their leads, so they go back to
+    // the unassigned pool for a Team Lead to hand out again.
+    if (isActive === false) {
+      const released = await unassignLeadsOf(tx, params.id);
+      if (released > 0) moveNote += ` — ${released} assigned lead(s) returned to unassigned`;
+    }
+
     const action = isActive === false ? 'USER_DEACTIVATED' : 'USER_UPDATED';
     await logActivity({
       userId: session.user.id,
@@ -195,8 +202,11 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
       return NextResponse.json({ success: false, error: 'Unauthorized', code: 'UNAUTHORIZED' }, { status: 401 });
     }
 
-    await prisma.user.update({ where: { id: params.id }, data: { isActive: false, status: 'INACTIVE' } });
-    return NextResponse.json({ success: true });
+    const released = await prisma.$transaction(async (tx) => {
+      await tx.user.update({ where: { id: params.id }, data: { isActive: false, status: 'INACTIVE' } });
+      return unassignLeadsOf(tx, params.id);
+    });
+    return NextResponse.json({ success: true, leadsReleased: released });
   } catch (error) {
     console.error('[users/[id] DELETE]', error);
     return NextResponse.json({ success: false, error: 'Internal server error' }, { status: 500 });
