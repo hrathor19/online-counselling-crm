@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth';
 import { z } from 'zod';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
+import { dispatchLeadPushes } from '@/lib/college-push';
 import { hasPermission, logActivity } from '@/lib/permissions';
 import { Feature } from '@prisma/client';
 
@@ -67,6 +68,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
     return u;
   });
+
+  // A lead held for approval goes to its college's API push now that it is approved.
+  if (isApprove) void dispatchLeadPushes([params.id], 'APPROVED');
 
   return NextResponse.json({ success: true, lead: updated });
 }

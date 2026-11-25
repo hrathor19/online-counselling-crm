@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth';
 import { Prisma } from '@prisma/client';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
+import { dispatchLeadPushes } from '@/lib/college-push';
 import { hasPermission, logActivity } from '@/lib/permissions';
 import { getLeadWhereClause, validateLeadForApproval } from '@/lib/lead-access';
 import { Feature } from '@prisma/client';
@@ -75,6 +76,8 @@ export async function PATCH(req: NextRequest) {
         metadata: { approvedCount: valid.length, skippedCount: invalid.length, search: search ?? null },
       });
     });
+
+    void dispatchLeadPushes(valid, 'APPROVED');
 
     return NextResponse.json({
       success: true,

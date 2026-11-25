@@ -4,6 +4,7 @@ import { getServerSession } from 'next-auth';
 import { z } from 'zod';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
+import { dispatchLeadPushes } from '@/lib/college-push';
 import { isValidPhone } from '@/lib/phone';
 import { addInterest, mergeOrFlagDuplicate } from '@/lib/lead-interest';
 import { COUNSELLOR_ROLES, resolveAssignee } from '@/lib/assignable-users';
@@ -84,6 +85,9 @@ export async function POST(req: NextRequest) {
       );
     }
     if (outcome.kind === 'merged') {
+      // The student just showed interest in another college — that college's
+      // API push gets the lead too.
+      void dispatchLeadPushes([outcome.leadId], 'INSERTED');
       const merged = await prisma.lead.findUnique({ where: { id: outcome.leadId } });
       return NextResponse.json({
         ...merged,
@@ -163,6 +167,9 @@ export async function POST(req: NextRequest) {
     // complete from the start — otherwise every lead's second enquiry would
     // look like its first and the "+1" badge would under-count by one.
     await addInterest(prisma, lead.id, college, d.course?.trim() || null, 'MANUAL');
+
+    // Fire-and-forget: hand the lead to its college's live API integrations.
+    void dispatchLeadPushes([lead.id], 'INSERTED');
 
     // `assignedToSelf` lets the form say so, rather than the operator having
     // to go and look at whether the lead landed in their own queue.

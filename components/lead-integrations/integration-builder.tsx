@@ -1,11 +1,12 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Webhook, Loader2, Plus, Trash2, Save, Send, ChevronDown, ChevronUp,
-  CheckCircle2, XCircle, RotateCcw, Search, Copy, ShieldAlert,
+  CheckCircle2, XCircle, RotateCcw, Search, Copy, ShieldAlert, ArrowLeft, ShieldCheck, KeyRound, Wand2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -43,6 +44,11 @@ interface IntegrationDetail {
   queryParams: ParamRow[];
   bodyTemplate: string;
   timeoutMs: number;
+  collegeOption?: { id: string; value: string } | null;
+  pushWhen?: 'ON_INSERT' | 'ON_APPROVAL';
+  maxAttempts?: number;
+  hasSigningSecret?: boolean;
+  verifiedAt?: string | null;
 }
 
 interface LeadSearchResult {
@@ -64,6 +70,7 @@ interface LogRow {
   success: boolean;
   errorMessage: string | null;
   attemptedAt: string;
+  attempt?: number;
   lead: { id: string; name: string } | null;
 }
 
@@ -86,7 +93,42 @@ type TabKey = (typeof TABS)[number]['key'];
 const FIELD_GROUPS: FieldGroup[] = ['Lead', 'Agent', 'LeadProfile', 'System'];
 const GROUP_LABEL: Record<FieldGroup, string> = { Lead: 'Lead', Agent: 'Assigned Agent', LeadProfile: 'Lead Profile', System: 'System' };
 
-export function LeadIntegrationBuilder({ integrationId }: { integrationId?: string }) {
+const COLLEGE_STARTER_BODY = `{
+  "leadId": "{{id}}",
+  "name": "{{name}}",
+  "email": "{{email}}",
+  "phone": "{{phone}}",
+  "city": "{{city}}",
+  "state": "{{state}}",
+  "course": "{{course}}",
+  "college": "{{college}}",
+  "campaign": "{{campaign}}",
+  "createdAt": "{{createdAt}}"
+}`;
+
+const COLLEGE_LIST_HREF = '/dashboard/super-admin/configurations/college-integrations';
+
+function randomSecret(): string {
+  const bytes = new Uint8Array(24);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/**
+ * The integration editor. With `collegeOptionId` it edits a per-college lead
+ * push (pushes that college's leads when they arrive); without, a global
+ * integration. Everything else — endpoint, headers, body builder, test and
+ * logs — is the same.
+ */
+export function LeadIntegrationBuilder({
+  integrationId,
+  collegeOptionId,
+  collegeName,
+}: {
+  integrationId?: string;
+  collegeOptionId?: string;
+  collegeName?: string;
+}) {
   const isEdit = !!integrationId;
   const router = useRouter();
   const qc = useQueryClient();
@@ -101,10 +143,23 @@ export function LeadIntegrationBuilder({ integrationId }: { integrationId?: stri
     { key: 'Content-Type', value: 'application/json', isSecret: false },
   ]);
   const [queryParams, setQueryParams] = useState<ParamRow[]>([]);
-  const [bodyTemplate, setBodyTemplate] = useState('{\n  \n}');
+  const [bodyTemplate, setBodyTemplate] = useState(collegeOptionId ? COLLEGE_STARTER_BODY : '{\n  \n}');
   const [timeoutMs, setTimeoutMs] = useState(10000);
   const [saving, setSaving] = useState(false);
   const [loaded, setLoaded] = useState(!isEdit);
+
+  // Per-college settings.
+  const [pushWhen, setPushWhen] = useState<'ON_INSERT' | 'ON_APPROVAL'>('ON_INSERT');
+  const [maxAttempts, setMaxAttempts] = useState(3);
+  const [hasSigningSecret, setHasSigningSecret] = useState(false);
+  const [signingSecret, setSigningSecret] = useState('');
+  const [removeSigningSecret, setRemoveSigningSecret] = useState(false);
+  const [verifiedAt, setVerifiedAt] = useState<string | null>(null);
+  const [college, setCollege] = useState<{ id: string; name: string } | null>(
+    collegeOptionId ? { id: collegeOptionId, name: collegeName ?? 'this college' } : null,
+  );
+  const [toggling, setToggling] = useState(false);
+  const [logsStatus, setLogsStatus] = useState<'all' | 'failed' | 'success'>('all');
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -148,6 +203,11 @@ export function LeadIntegrationBuilder({ integrationId }: { integrationId?: stri
     setQueryParams(integration.queryParams ?? []);
     setBodyTemplate(integration.bodyTemplate);
     setTimeoutMs(integration.timeoutMs);
+    if (integration.collegeOption) setCollege({ id: integration.collegeOption.id, name: integration.collegeOption.value });
+    setPushWhen(integration.pushWhen ?? 'ON_INSERT');
+    setMaxAttempts(integration.maxAttempts ?? 3);
+    setHasSigningSecret(!!integration.hasSigningSecret);
+    setVerifiedAt(integration.verifiedAt ?? null);
     setLoaded(true);
   }, [integration]);
 
@@ -239,7 +299,38 @@ export function LeadIntegrationBuilder({ integrationId }: { integrationId?: stri
       queryParams: queryParams.filter((p) => p.key.trim()).map((p) => ({ key: p.key.trim(), value: p.value })),
       bodyTemplate,
       timeoutMs,
+      ...(college
+        ? {
+            ...(isEdit ? {} : { collegeOptionId: college.id }),
+            pushWhen,
+            maxAttempts,
+            // Omitted when untouched, so the stored secret is left alone.
+            ...(signingSecret.trim() ? { signingSecret: signingSecret.trim() } : removeSigningSecret ? { signingSecret: '' } : {}),
+          }
+        : {}),
     };
+  }
+
+  /** The on/off switch for a per-college push — goes through the endpoint that enforces "verified first". */
+  async function handleToggleActive(next: boolean) {
+    if (!integrationId) return;
+    setToggling(true);
+    try {
+      const r = await fetch(`/api/super-admin/lead-integrations/${integrationId}/active`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ isActive: next }),
+      });
+      const json = await r.json();
+      if (!r.ok) throw new Error(typeof json?.error === 'string' ? json.error : 'Could not change the switch');
+      setIsActive(json.isActive);
+      qc.invalidateQueries({ queryKey: ['college-integrations'] });
+      toast({ title: json.isActive ? 'Push switched on' : 'Push switched off' });
+    } catch (err) {
+      toast({ variant: 'destructive', title: 'Could not change the switch', description: err instanceof Error ? err.message : undefined });
+    } finally {
+      setToggling(false);
+    }
   }
 
   async function handleSave() {
@@ -274,12 +365,28 @@ export function LeadIntegrationBuilder({ integrationId }: { integrationId?: stri
       if (!r.ok) throw new Error(typeof json?.error === 'string' ? json.error : 'Failed to save');
 
       qc.invalidateQueries({ queryKey: ['lead-integrations'] });
+      qc.invalidateQueries({ queryKey: ['college-integrations'] });
       if (isEdit) {
         qc.invalidateQueries({ queryKey: ['lead-integration', integrationId] });
-        toast({ title: 'Saved' });
+        setSigningSecret('');
+        setRemoveSigningSecret(false);
+        if (college && json.paused) {
+          setIsActive(false);
+          setVerifiedAt(null);
+          toast({
+            title: 'Saved — push paused',
+            description: 'The request changed, so it needs a fresh Test & Send before it can be switched back on.',
+          });
+        } else {
+          toast({ title: 'Saved' });
+        }
       } else {
-        toast({ title: 'Integration created' });
-        router.push(`/dashboard/super-admin/configurations/lead-integrations/${json.id}`);
+        toast({ title: 'Integration created', description: college ? 'Next: run Test & Send, then switch it on.' : undefined });
+        router.push(
+          college
+            ? `${COLLEGE_LIST_HREF}/${college.id}/${json.id}`
+            : `/dashboard/super-admin/configurations/lead-integrations/${json.id}`,
+        );
       }
     } catch (err) {
       toast({ variant: 'destructive', title: 'Save failed', description: err instanceof Error ? err.message : undefined });
@@ -306,6 +413,7 @@ export function LeadIntegrationBuilder({ integrationId }: { integrationId?: stri
       const json = await r.json();
       if (!r.ok) throw new Error(typeof json?.error === 'string' ? json.error : 'Test request failed');
       setTestResult(json);
+      if (json.verified) setVerifiedAt(new Date().toISOString());
       qc.invalidateQueries({ queryKey: ['lead-integration-logs', integrationId] });
       qc.invalidateQueries({ queryKey: ['lead-integrations'] });
     } catch (err) {
@@ -322,11 +430,12 @@ export function LeadIntegrationBuilder({ integrationId }: { integrationId?: stri
     limit: number;
     totalPages: number;
   }>({
-    queryKey: ['lead-integration-logs', integrationId, logsPage, logsLimit, logsFrom, logsTo],
+    queryKey: ['lead-integration-logs', integrationId, logsPage, logsLimit, logsFrom, logsTo, logsStatus],
     queryFn: () => {
       const p = new URLSearchParams({ page: String(logsPage), limit: String(logsLimit) });
       if (logsFrom) p.set('from', logsFrom);
       if (logsTo) p.set('to', logsTo);
+      if (logsStatus !== 'all') p.set('status', logsStatus);
       return fetch(`/api/super-admin/lead-integrations/${integrationId}/logs?${p}`).then((r) => r.json());
     },
     enabled: isEdit && tab === 'logs',
@@ -406,16 +515,35 @@ export function LeadIntegrationBuilder({ integrationId }: { integrationId?: stri
 
   return (
     <div className="space-y-6">
+      {college && (
+        <Link href={`${COLLEGE_LIST_HREF}/${college.id}`} className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+          <ArrowLeft className="h-3.5 w-3.5" /> Back to {college.name}
+        </Link>
+      )}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 className="flex items-center gap-2 text-xl sm:text-2xl font-bold">
             <Webhook className="h-5 w-5 sm:h-6 sm:w-6 text-primary" /> {isEdit ? name || 'Edit Integration' : 'New Integration'}
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Configure the endpoint, headers, and field mapping for pushing referral leads to an external system.
+            {college
+              ? `Push ${college.name}'s leads to its own system the moment they arrive in the CRM — configure the endpoint, headers and field mapping.`
+              : 'Configure the endpoint, headers, and field mapping for pushing referral leads to an external system.'}
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
+          {isEdit && college && (
+            <span
+              className={cn(
+                'flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-bold',
+                verifiedAt
+                  ? 'border-emerald-300/50 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
+                  : 'border-amber-300/50 bg-amber-500/10 text-amber-700 dark:text-amber-400'
+              )}
+            >
+              <ShieldCheck className="h-3 w-3" /> {verifiedAt ? 'Verified' : 'Not verified'}
+            </span>
+          )}
           {isEdit && (
             <span
               className={cn(
@@ -465,11 +593,27 @@ export function LeadIntegrationBuilder({ integrationId }: { integrationId?: stri
               </div>
               <div className="space-y-1.5">
                 <Label>Trigger</Label>
-                <Input value="Referral Lead Created" disabled className="bg-muted/40 text-muted-foreground" />
+                <Input
+                  value={college ? `New lead for ${college.name}` : 'Referral Lead Created'}
+                  disabled
+                  className="bg-muted/40 text-muted-foreground"
+                />
               </div>
             </div>
 
-            {isEdit ? (
+            {isEdit && college ? (
+              <div className="flex items-center justify-between gap-3 rounded-lg border border-border/60 bg-muted/20 px-4 py-3">
+                <div>
+                  <p className="text-sm font-medium">Push live</p>
+                  <p className="text-xs text-muted-foreground">
+                    {verifiedAt
+                      ? `When on, every ${college.name} lead is pushed here automatically.`
+                      : 'Run a successful Test & Send first — it unlocks this switch.'}
+                  </p>
+                </div>
+                <Switch checked={isActive} disabled={toggling || (!verifiedAt && !isActive)} onCheckedChange={handleToggleActive} />
+              </div>
+            ) : isEdit ? (
               <div className="flex items-center justify-between rounded-lg border border-border/60 bg-muted/20 px-4 py-3">
                 <div>
                   <p className="text-sm font-medium">Active</p>
@@ -522,6 +666,89 @@ export function LeadIntegrationBuilder({ integrationId }: { integrationId?: stri
                 className="max-w-[160px]"
               />
             </div>
+
+            {college && (
+              <div className="space-y-4 rounded-lg border border-border/60 p-4">
+                <div>
+                  <p className="text-sm font-semibold">Delivery rules</p>
+                  <p className="text-xs text-muted-foreground">
+                    Matches any lead that has shown interest in <span className="font-medium">{college.name}</span>, however it arrived — CSV
+                    upload, partner API, Add Lead, referral — and each lead is sent to this endpoint once.
+                  </p>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <Label>Send when</Label>
+                    <Select value={pushWhen} onValueChange={(v) => setPushWhen(v as 'ON_INSERT' | 'ON_APPROVAL')}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="ON_INSERT">As soon as the lead is added</SelectItem>
+                        <SelectItem value="ON_APPROVAL">Only once the lead is approved</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <p className="text-[11px] text-muted-foreground">
+                      {pushWhen === 'ON_INSERT'
+                        ? 'CSV uploads wait in Lead Approvals, but are still sent immediately. Rejected leads are never sent.'
+                        : 'Leads waiting in Lead Approvals are held back, and rejected ones are never sent.'}
+                    </p>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Automatic attempts</Label>
+                    <Select value={String(maxAttempts)} onValueChange={(v) => setMaxAttempts(Number(v))}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {[1, 2, 3, 4, 5].map((n) => (
+                          <SelectItem key={n} value={String(n)}>
+                            {n === 1 ? '1 attempt (no retries)' : `Up to ${n} attempts`}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-[11px] text-muted-foreground">
+                      Retries only network errors, timeouts and HTTP 408/429/5xx, waiting longer each time. An HTTP 4xx means the data was
+                      rejected, so it is not retried.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label className="flex items-center gap-1.5">
+                    <KeyRound className="h-3.5 w-3.5" /> Signing secret <span className="font-normal text-muted-foreground">(optional)</span>
+                  </Label>
+                  <div className="flex flex-wrap gap-2">
+                    <Input
+                      value={signingSecret}
+                      onChange={(e) => { setSigningSecret(e.target.value); setRemoveSigningSecret(false); }}
+                      placeholder={hasSigningSecret && !removeSigningSecret ? '•••••••• (set — type or generate to replace)' : 'Leave empty to send unsigned'}
+                      className="min-w-[220px] flex-1 font-mono text-sm"
+                    />
+                    <Button type="button" variant="outline" onClick={() => { setSigningSecret(randomSecret()); setRemoveSigningSecret(false); }}>
+                      <Wand2 className="mr-1.5 h-3.5 w-3.5" /> Generate
+                    </Button>
+                    {signingSecret && (
+                      <Button type="button" variant="outline" onClick={() => { navigator.clipboard.writeText(signingSecret); toast({ title: 'Secret copied' }); }}>
+                        <Copy className="mr-1.5 h-3.5 w-3.5" /> Copy
+                      </Button>
+                    )}
+                    {isEdit && hasSigningSecret && !signingSecret && (
+                      <Button type="button" variant="ghost" className="text-red-600" onClick={() => setRemoveSigningSecret((v) => !v)}>
+                        {removeSigningSecret ? 'Keep secret' : 'Remove secret'}
+                      </Button>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    With a secret, each request carries <code className="rounded bg-muted px-1">X-CRM-Timestamp</code> and{' '}
+                    <code className="rounded bg-muted px-1">X-CRM-Signature</code> = <code className="rounded bg-muted px-1">sha256=HMAC(secret, timestamp + &quot;.&quot; + body)</code>{' '}
+                    so the college can verify it came from this CRM. Share the secret with them — it is shown only now and cannot be read back later.
+                    Every push also carries an <code className="rounded bg-muted px-1">Idempotency-Key</code> header so a repeat delivery can be ignored.
+                  </p>
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
       )}
@@ -838,6 +1065,19 @@ export function LeadIntegrationBuilder({ integrationId }: { integrationId?: stri
                   className="h-9 w-[150px]"
                 />
               </div>
+              <div className="space-y-1">
+                <Label className="text-[11px] text-muted-foreground">Result</Label>
+                <Select value={logsStatus} onValueChange={(v) => { setLogsStatus(v as 'all' | 'failed' | 'success'); setLogsPage(1); }}>
+                  <SelectTrigger className="h-9 w-[140px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All</SelectItem>
+                    <SelectItem value="failed">Failed only</SelectItem>
+                    <SelectItem value="success">Succeeded only</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
               {(logsFrom || logsTo) && (
                 <Button
                   variant="ghost"
@@ -915,6 +1155,11 @@ function LogRowItem({ log, onRetry, retrying }: { log: LogRow; onRetry: () => vo
               {log.retryOfLogId && (
                 <span className="ml-1.5 rounded-full border border-border px-1.5 py-0 text-[10px] font-semibold text-muted-foreground">
                   RETRY
+                </span>
+              )}
+              {!!log.attempt && log.attempt > 1 && (
+                <span className="ml-1.5 rounded-full border border-border px-1.5 py-0 text-[10px] font-semibold text-muted-foreground">
+                  ATTEMPT {log.attempt}
                 </span>
               )}
             </p>

@@ -6,6 +6,8 @@ import { prisma } from '@/lib/prisma';
 import { logActivity } from '@/lib/permissions';
 import { leadIntegrationSchema } from '@/lib/lead-integration-validation';
 import { prepareHeadersForStorage, sanitizeHeadersForClient, type IntegrationHeader } from '@/lib/lead-integration-engine';
+import { encryptSecret } from '@/lib/integration-crypto';
+import { withoutSigningSecret } from '@/lib/integration-admin';
 import { isActionUnlocked } from '@/lib/security-pin';
 import { PIN_GATED_ACTIONS } from '@/lib/pin-gated-actions';
 
@@ -21,7 +23,10 @@ export async function GET() {
       return NextResponse.json({ error: 'This tool is PIN-locked — verify your security PIN first', code: 'PIN_LOCKED' }, { status: 423 });
     }
 
+    // Per-college integrations are managed in the College API Push module, so
+    // this list is the global ones only.
     const integrations = await prisma.leadIntegration.findMany({
+      where: { collegeOptionId: null },
       orderBy: { createdAt: 'desc' },
       include: {
         createdBy: { select: { id: true, name: true } },
@@ -29,7 +34,7 @@ export async function GET() {
       },
     });
 
-    const sanitized = integrations.map(({ headers, queryParams, bodyTemplate, logs, ...rest }) => ({
+    const sanitized = integrations.map(({ headers, queryParams, bodyTemplate, logs, signingSecret, ...rest }) => ({
       ...rest,
       headers: sanitizeHeadersForClient((headers as unknown as IntegrationHeader[]) ?? []),
       queryParams,
@@ -64,10 +69,29 @@ export async function POST(req: NextRequest) {
     // New integrations start OFF — an admin must verify the mapping via
     // Test & Send before flipping it on, so a half-configured integration
     // can't silently start pushing real leads to a third party.
+    let collegeOptionId: string | null = null;
+    if (d.collegeOptionId) {
+      const college = await prisma.dropdownOption.findFirst({
+        where: { id: d.collegeOptionId, type: 'COLLEGE' },
+        select: { id: true },
+      });
+      if (!college) return NextResponse.json({ error: 'College not found' }, { status: 404 });
+      collegeOptionId = college.id;
+    }
+
     const integration = await prisma.leadIntegration.create({
       data: {
         name: d.name,
         isActive: false,
+        ...(collegeOptionId
+          ? {
+              trigger: 'LEAD_CREATED' as const,
+              collegeOptionId,
+              pushWhen: d.pushWhen ?? 'ON_INSERT',
+              maxAttempts: d.maxAttempts ?? 3,
+            }
+          : {}),
+        signingSecret: d.signingSecret ? encryptSecret(d.signingSecret) : null,
         method: d.method,
         url: d.url,
         headers: prepareHeadersForStorage(d.headers) as unknown as Prisma.InputJsonValue,
@@ -87,7 +111,7 @@ export async function POST(req: NextRequest) {
     });
 
     return NextResponse.json(
-      { ...integration, headers: sanitizeHeadersForClient(d.headers) },
+      { ...withoutSigningSecret(integration), headers: sanitizeHeadersForClient(d.headers) },
       { status: 201 }
     );
   } catch (error) {

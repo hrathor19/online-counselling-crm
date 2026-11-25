@@ -3,7 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { executeIntegration } from '@/lib/lead-integration-engine';
-import { buildLeadTemplateData } from '@/lib/lead-integration-data';
+import { buildCollegePushData } from '@/lib/college-push';
 import { isActionUnlocked } from '@/lib/security-pin';
 import { PIN_GATED_ACTIONS } from '@/lib/pin-gated-actions';
 
@@ -38,7 +38,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
     });
     if (!lead) return NextResponse.json({ error: 'The original lead no longer exists' }, { status: 404 });
 
-    const data = await buildLeadTemplateData(lead);
+    const data = await buildCollegePushData(lead, integration);
     const result = await executeIntegration(integration, data, {
       leadId: lead.id,
       isTest: log.isTest,

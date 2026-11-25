@@ -1,8 +1,10 @@
+import { createHmac } from 'crypto';
 import { Prisma, type LeadIntegration, type LeadIntegrationTrigger } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { decryptSecret, encryptSecret, maskSecret, SECRET_UNCHANGED_SENTINEL } from '@/lib/integration-crypto';
 import { renderTemplate, renderText } from '@/lib/lead-integration-template';
 import { buildLeadTemplateData } from '@/lib/lead-integration-data';
+import { assertPublicHttpUrl } from '@/lib/url-guard';
 
 export interface IntegrationHeader {
   key: string;
@@ -20,12 +22,22 @@ export interface ExecuteResult {
   responseStatus: number | null;
   responseBody: string | null;
   errorMessage: string | null;
+  /** True when trying again could succeed: a network error, a timeout, or HTTP
+   * 408/425/429/5xx. A 4xx means the receiver rejected the data, and a bad
+   * template or blocked URL is our own configuration — retrying fixes neither. */
+  retryable: boolean;
 }
 
 interface ExecuteOptions {
   leadId?: string | null;
   isTest?: boolean;
   retryOfLogId?: string;
+  /** Automatic delivery attempt number, recorded on the log row. */
+  attempt?: number;
+}
+
+function isRetryableStatus(status: number): boolean {
+  return status === 408 || status === 425 || status === 429 || status >= 500;
 }
 
 const MAX_STORED_RESPONSE_LENGTH = 5000;
@@ -102,6 +114,7 @@ export async function executeIntegration(
     leadId: options.leadId ?? null,
     isTest: options.isTest ?? false,
     retryOfLogId: options.retryOfLogId ?? null,
+    attempt: options.attempt ?? 1,
   };
 
   let url: URL;
@@ -125,6 +138,7 @@ export async function executeIntegration(
     for (const p of params) {
       url.searchParams.set(renderText(p.key, data), renderText(p.value, data));
     }
+    await assertPublicHttpUrl(url);
   } catch (err) {
     const errorMessage = `Failed to build request: ${err instanceof Error ? err.message : 'Unknown error'}`;
     await prisma.leadIntegrationLog
@@ -140,7 +154,7 @@ export async function executeIntegration(
         },
       })
       .catch((logErr) => console.error('[lead-integration-engine] failed to write log', logErr));
-    return { success: false, responseStatus: null, responseBody: null, errorMessage };
+    return { success: false, responseStatus: null, responseBody: null, errorMessage, retryable: false };
   }
 
   const { output: renderedBody, valid, error: bodyError } = renderTemplate(integration.bodyTemplate, data);
@@ -158,19 +172,46 @@ export async function executeIntegration(
     await prisma.leadIntegrationLog
       .create({ data: { ...logShared, success: false, errorMessage } })
       .catch((logErr) => console.error('[lead-integration-engine] failed to write log', logErr));
-    return { success: false, responseStatus: null, responseBody: null, errorMessage };
+    return { success: false, responseStatus: null, responseBody: null, errorMessage, retryable: false };
+  }
+
+  const method = integration.method.toUpperCase();
+  const sentBody = method === 'GET' || method === 'HEAD' ? '' : renderedBody;
+
+  // Headers every push carries unless the admin set their own. The idempotency
+  // key lets a college discard a repeat delivery of the same lead; the
+  // signature lets it prove the request came from this CRM.
+  const hasHeader = (name: string) => Object.keys(renderedHeaders).some((k) => k.toLowerCase() === name.toLowerCase());
+  if (options.leadId && !hasHeader('Idempotency-Key')) {
+    renderedHeaders['Idempotency-Key'] = `${integration.id}-${options.leadId}`;
+    logShared.requestHeaders = { ...logHeaders, 'Idempotency-Key': renderedHeaders['Idempotency-Key'] } as Prisma.InputJsonValue;
+  }
+  if (integration.signingSecret) {
+    try {
+      const ts = String(Math.floor(Date.now() / 1000));
+      const sig = createHmac('sha256', decryptSecret(integration.signingSecret)).update(`${ts}.${sentBody}`).digest('hex');
+      renderedHeaders['X-CRM-Timestamp'] = ts;
+      renderedHeaders['X-CRM-Signature'] = `sha256=${sig}`;
+    } catch (err) {
+      const errorMessage = `Failed to sign request: ${err instanceof Error ? err.message : 'Unknown error'}`;
+      await prisma.leadIntegrationLog
+        .create({ data: { ...logShared, success: false, errorMessage } })
+        .catch((logErr) => console.error('[lead-integration-engine] failed to write log', logErr));
+      return { success: false, responseStatus: null, responseBody: null, errorMessage, retryable: false };
+    }
   }
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), integration.timeoutMs);
   let result: ExecuteResult;
   try {
-    const method = integration.method.toUpperCase();
     const res = await fetch(url.toString(), {
       method,
       headers: renderedHeaders,
-      body: method === 'GET' || method === 'HEAD' ? undefined : renderedBody,
+      body: sentBody === '' ? undefined : sentBody,
       signal: controller.signal,
+      // A redirect would escape the destination check above, so none is followed.
+      redirect: 'manual',
     });
     const text = await res.text();
     const truncated =
@@ -179,7 +220,8 @@ export async function executeIntegration(
       success: res.ok,
       responseStatus: res.status,
       responseBody: truncated,
-      errorMessage: res.ok ? null : `HTTP ${res.status}`,
+      errorMessage: res.ok ? null : res.status >= 300 && res.status < 400 ? `HTTP ${res.status} — redirects are not followed; use the final URL` : `HTTP ${res.status}`,
+      retryable: !res.ok && isRetryableStatus(res.status),
     };
   } catch (err) {
     const isAbort = err instanceof Error && err.name === 'AbortError';
@@ -192,6 +234,7 @@ export async function executeIntegration(
         : err instanceof Error
         ? err.message
         : 'Unknown error',
+      retryable: true,
     };
   } finally {
     clearTimeout(timeout);
@@ -208,6 +251,17 @@ export async function executeIntegration(
       },
     })
     .catch((logErr) => console.error('[lead-integration-engine] failed to write log', logErr));
+
+  // The durable "this lead has been delivered" record — see LeadIntegrationPush.
+  if (result.success && !options.isTest && options.leadId) {
+    await prisma.leadIntegrationPush
+      .upsert({
+        where: { integrationId_leadId: { integrationId: integration.id, leadId: options.leadId } },
+        create: { integrationId: integration.id, leadId: options.leadId },
+        update: { pushedAt: new Date() },
+      })
+      .catch((pushErr) => console.error('[lead-integration-engine] failed to record push', pushErr));
+  }
 
   return result;
 }

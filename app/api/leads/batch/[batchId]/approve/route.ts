@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
+import { dispatchLeadPushes } from '@/lib/college-push';
 import { hasPermission, logActivity } from '@/lib/permissions';
 import { validateLeadForApproval } from '@/lib/lead-access';
 import { Feature } from '@prisma/client';
@@ -57,6 +58,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { batchId: s
       metadata: { batchId: params.batchId, approvedCount: valid.length, skippedCount: invalid.length },
     });
   });
+
+  void dispatchLeadPushes(valid, 'APPROVED');
 
   return NextResponse.json({
     success: true,

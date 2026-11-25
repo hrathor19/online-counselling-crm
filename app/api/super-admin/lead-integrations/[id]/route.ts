@@ -6,6 +6,8 @@ import { prisma } from '@/lib/prisma';
 import { logActivity } from '@/lib/permissions';
 import { leadIntegrationSchema } from '@/lib/lead-integration-validation';
 import { prepareHeadersForStorage, sanitizeHeadersForClient, type IntegrationHeader } from '@/lib/lead-integration-engine';
+import { encryptSecret, SECRET_UNCHANGED_SENTINEL } from '@/lib/integration-crypto';
+import { withoutSigningSecret } from '@/lib/integration-admin';
 import { isActionUnlocked } from '@/lib/security-pin';
 import { PIN_GATED_ACTIONS } from '@/lib/pin-gated-actions';
 
@@ -21,12 +23,15 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 
     const integration = await prisma.leadIntegration.findUnique({
       where: { id: params.id },
-      include: { createdBy: { select: { id: true, name: true } } },
+      include: {
+        createdBy: { select: { id: true, name: true } },
+        collegeOption: { select: { id: true, value: true } },
+      },
     });
     if (!integration) return NextResponse.json({ error: 'Integration not found' }, { status: 404 });
 
     return NextResponse.json({
-      ...integration,
+      ...withoutSigningSecret(integration),
       headers: sanitizeHeadersForClient((integration.headers as unknown as IntegrationHeader[]) ?? []),
     });
   } catch (error) {
@@ -55,18 +60,63 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     }
     const d = parsed.data;
     const existingHeaders = (existing.headers as unknown as IntegrationHeader[]) ?? [];
+    const isCollege = !!existing.collegeOptionId;
+
+    // What actually reaches the receiver. Changing any of it invalidates the
+    // last successful test, so a per-college integration drops back to
+    // unverified (and off) instead of silently pushing a half-edited request.
+    const headersChanged =
+      existingHeaders.length !== d.headers.length ||
+      d.headers.some((h, i) => {
+        const prev = existingHeaders[i];
+        if (!prev || prev.key !== h.key || prev.isSecret !== h.isSecret) return true;
+        return h.isSecret ? h.value !== SECRET_UNCHANGED_SENTINEL : h.value !== prev.value;
+      });
+    const requestChanged =
+      headersChanged ||
+      existing.method !== d.method ||
+      existing.url !== d.url ||
+      existing.bodyTemplate !== d.bodyTemplate ||
+      JSON.stringify(existing.queryParams) !== JSON.stringify(d.queryParams) ||
+      d.signingSecret !== undefined;
+
+    let isActive = d.isActive ?? existing.isActive;
+    let verifiedAt = existing.verifiedAt;
+    let paused = false;
+    if (isCollege) {
+      if (requestChanged) {
+        verifiedAt = null;
+        paused = existing.isActive || isActive;
+        isActive = false;
+      } else if (isActive && !verifiedAt) {
+        return NextResponse.json(
+          { error: 'Run a successful Test & Send before switching this integration on' },
+          { status: 400 },
+        );
+      }
+    }
 
     const updated = await prisma.leadIntegration.update({
       where: { id: params.id },
       data: {
         name: d.name,
-        isActive: d.isActive ?? existing.isActive,
+        isActive,
         method: d.method,
         url: d.url,
         headers: prepareHeadersForStorage(d.headers, existingHeaders) as unknown as Prisma.InputJsonValue,
         queryParams: d.queryParams as unknown as Prisma.InputJsonValue,
         bodyTemplate: d.bodyTemplate,
         timeoutMs: d.timeoutMs,
+        ...(isCollege
+          ? {
+              verifiedAt,
+              pushWhen: d.pushWhen ?? existing.pushWhen,
+              maxAttempts: d.maxAttempts ?? existing.maxAttempts,
+            }
+          : {}),
+        ...(d.signingSecret !== undefined
+          ? { signingSecret: d.signingSecret === '' ? null : encryptSecret(d.signingSecret) }
+          : {}),
       },
     });
 
@@ -78,7 +128,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       description: `Updated lead integration "${updated.name}"`,
     });
 
-    return NextResponse.json({ ...updated, headers: sanitizeHeadersForClient(d.headers) });
+    return NextResponse.json({ ...withoutSigningSecret(updated), headers: sanitizeHeadersForClient(d.headers), paused });
   } catch (error) {
     console.error('[super-admin/lead-integrations/[id] PATCH]', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

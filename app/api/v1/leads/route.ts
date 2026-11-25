@@ -6,6 +6,7 @@ import { callingTypeForIngest } from '@/lib/lead-code';
 import { planPriorityAssignments } from '@/lib/priority-assignment';
 import { logActivity } from '@/lib/permissions';
 import { verifyApiKey } from '@/lib/api-key';
+import { dispatchLeadPushes } from '@/lib/college-push';
 import { addInterest, findLeadByIdentity, hasInterest, identityKey, norm } from '@/lib/lead-interest';
 import { fetchLmsCityNames, fetchLmsStateNames, fetchLmsCourseGroupRecords, toCanonicalMap } from '@/lib/lms-api';
 import { buildDropdownValidationSets, isAllowedDropdownValue, type DropdownValidationSets } from '@/lib/dropdown-validation';
@@ -483,6 +484,7 @@ export async function POST(req: NextRequest) {
         if (!(await hasInterest(prisma, existing.id, college, resolved.course ?? null))) {
           await addInterest(prisma, existing.id, college, resolved.course ?? null, 'API', { promote: true });
           const interestCount = await prisma.leadInterest.count({ where: { leadId: existing.id } });
+          void dispatchLeadPushes([existing.id], 'INSERTED');
           return NextResponse.json(
             {
               success: true,
@@ -542,6 +544,8 @@ export async function POST(req: NextRequest) {
         description: `Lead ${lead.id} created via API key "${apiKey.name}" — auto-approved, sent to Unassigned Leads`,
         metadata: { apiKeyId: apiKey.id, apiKeyName: apiKey.name },
       });
+
+      void dispatchLeadPushes([lead.id], 'INSERTED');
 
       return NextResponse.json({ success: true, message: 'Lead Processed Successfully', Lead_ID: lead.id }, { status: 201 });
     }
@@ -840,6 +844,13 @@ export async function POST(req: NextRequest) {
       duplicate: results.filter((r) => !r.success && r.message.startsWith('Duplicate')).length,
       failed: results.filter((r) => !r.success && !r.message.startsWith('Duplicate')).length,
     };
+
+    // New leads, and existing ones that gained a college interest, go to those
+    // colleges' API pushes. A stage-only update brings no new college.
+    void dispatchLeadPushes(
+      Array.from(new Set(results.filter((r) => r.success && !isStageUpdate(r.message) && r.Lead_ID).map((r) => r.Lead_ID as string))),
+      'INSERTED',
+    );
 
     // A request whose items all merged onto existing leads did real work, so
     // it is a success even though `created` is zero.

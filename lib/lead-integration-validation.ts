@@ -12,6 +12,7 @@ export const paramSchema = z.object({
 });
 
 export const HTTP_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as const;
+export const PUSH_WHEN = ['ON_INSERT', 'ON_APPROVAL'] as const;
 
 export const leadIntegrationSchema = z.object({
   name: z.string().trim().min(2, 'Name must be at least 2 characters').max(200),
@@ -22,4 +23,11 @@ export const leadIntegrationSchema = z.object({
   queryParams: z.array(paramSchema).max(50).default([]),
   bodyTemplate: z.string().max(20000).default('{}'),
   timeoutMs: z.number().int().min(1000).max(30000).default(10000),
+  // Per-college push settings. collegeOptionId is honoured on create only —
+  // an integration never moves to another college.
+  collegeOptionId: z.string().min(1).optional().nullable(),
+  pushWhen: z.enum(PUSH_WHEN).optional(),
+  maxAttempts: z.number().int().min(1).max(5).optional(),
+  /** Omitted: unchanged. Empty string: remove the secret. Otherwise: set it. */
+  signingSecret: z.string().max(200).optional(),
 });

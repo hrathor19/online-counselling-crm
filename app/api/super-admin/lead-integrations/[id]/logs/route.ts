@@ -11,6 +11,7 @@ const querySchema = z.object({
   limit: z.coerce.number().int().positive().max(100).default(25),
   from: z.string().optional(),
   to: z.string().optional(),
+  status: z.enum(['success', 'failed']).optional(),
 });
 
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
@@ -27,10 +28,11 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     if (!parsed.success) {
       return NextResponse.json({ error: 'Invalid query parameters' }, { status: 400 });
     }
-    const { page, limit, from, to } = parsed.data;
+    const { page, limit, from, to, status } = parsed.data;
 
     const where = {
       integrationId: params.id,
+      ...(status ? { success: status === 'success' } : {}),
       ...((from || to)
         ? {
             attemptedAt: {

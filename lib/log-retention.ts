@@ -49,8 +49,8 @@ export interface PurgeResult {
 
 async function purgeTable(
   db: PrismaClient,
-  table: 'ActivityLog' | 'EmailLog',
-  column: 'createdAt' | 'sentAt',
+  table: 'ActivityLog' | 'EmailLog' | 'LeadIntegrationLog',
+  column: 'createdAt' | 'sentAt' | 'attemptedAt',
   cutoff: Date,
   apply: boolean,
 ): Promise<PurgeResult> {
@@ -104,6 +104,10 @@ export async function purgeOldLogs(
   const results = [
     await purgeTable(db, 'ActivityLog', 'createdAt', cutoff, apply),
     await purgeTable(db, 'EmailLog', 'sentAt', cutoff, apply),
+    // Every college push writes a row with its request and response. Whether a
+    // lead was delivered lives in LeadIntegrationPush, which is never purged, so
+    // trimming this history cannot cause a lead to be sent twice.
+    await purgeTable(db, 'LeadIntegrationLog', 'attemptedAt', cutoff, apply),
   ];
 
   return { cutoff: toUtcSqlTimestamp(cutoff), months, results };

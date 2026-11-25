@@ -179,6 +179,18 @@ enum ActivityAction {
 // enum later without touching the LeadIntegration table shape.
 enum LeadIntegrationTrigger {
   REFERRAL_CREATED
+  /// A lead arrives in the CRM for the integration's college (CSV upload, API,
+  /// single add or an extra interest merged onto an existing student).
+  LEAD_CREATED
+}
+
+/// For a LEAD_CREATED integration: when the push goes out.
+enum LeadPushWhen {
+  /// The moment the lead is inserted, whatever its approval status.
+  ON_INSERT
+  /// Held until the lead is approved, so unapproved or rejected leads never
+  /// reach the college.
+  ON_APPROVAL
 }
 
 /// Where a KPI's number comes from. A KPI is defined by picking one of these
@@ -539,7 +551,8 @@ model Lead {
   referrals    Lead[]  @relation("LeadReferrals")
 
   // Push history when this lead triggered an external integration (e.g. LMS push)
-  integrationLogs LeadIntegrationLog[]
+  integrationLogs   LeadIntegrationLog[]
+  integrationPushes LeadIntegrationPush[]
 
   // Tracks the most recent feedback option — updated on every feedback submit
   currentFeedbackOptionId String?
@@ -685,6 +698,9 @@ model DropdownOption {
   updatedAt           DateTime     @updatedAt
 
   creator User @relation("DropdownOptionCreator", fields: [createdBy], references: [id])
+
+  /// COLLEGE-only: the lead-push integrations configured for this college.
+  collegeIntegrations LeadIntegration[] @relation("CollegeIntegrations")
 
   /// One row per value per type. A college is identified by its name now, so
   /// the name is the key: two colleges cannot share one, and CSV upload and the
@@ -1213,15 +1229,50 @@ model LeadIntegration {
   bodyTemplate String                 @db.Text
   timeoutMs    Int                    @default(10000)
 
+  /// Set for a per-college push (trigger LEAD_CREATED): the COLLEGE option whose
+  /// leads this integration receives, matched against Lead.college. SetNull on
+  /// delete leaves an inert integration — the engine never pushes without a
+  /// college — rather than one that would match every lead.
+  collegeOptionId String?
+  collegeOption   DropdownOption? @relation("CollegeIntegrations", fields: [collegeOptionId], references: [id], onDelete: SetNull)
+  pushWhen        LeadPushWhen    @default(ON_INSERT)
+  /// Delivery attempts per lead for a retryable failure (network error,
+  /// timeout, HTTP 408/425/429/5xx). A 4xx is the college rejecting the data,
+  /// so it is not retried automatically.
+  maxAttempts     Int             @default(3)
+  /// AES-256-GCM encrypted. When set, every request carries X-CRM-Timestamp and
+  /// X-CRM-Signature (HMAC-SHA256 of "<timestamp>.<body>") so the college can
+  /// verify the push really came from this CRM.
+  signingSecret   String?
+  /// Set when a Test & Send succeeds; cleared whenever the request config
+  /// changes. A per-college integration cannot be switched on without it.
+  verifiedAt      DateTime?
+
   createdById String
   createdBy   User   @relation("LeadIntegrationCreatedBy", fields: [createdById], references: [id])
 
   updatedAt DateTime @updatedAt
   createdAt DateTime @default(now())
 
-  logs LeadIntegrationLog[]
+  logs   LeadIntegrationLog[]
+  pushes LeadIntegrationPush[]
 
   @@index([trigger, isActive])
+  @@index([collegeOptionId, trigger, isActive])
+}
+
+/// One row per lead successfully delivered by an integration. This — not the
+/// log, which may be pruned and holds failures and tests too — is what stops a
+/// lead being sent twice, and what "already sent" means for a backfill.
+model LeadIntegrationPush {
+  integrationId String
+  integration   LeadIntegration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  leadId        String
+  lead          Lead            @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  pushedAt      DateTime        @default(now())
+
+  @@id([integrationId, leadId])
+  @@index([leadId])
 }
 
 // One row per push attempt (automatic, test, or retry) — kept even on
@@ -1237,6 +1288,7 @@ model LeadIntegrationLog {
 
   isTest       Boolean @default(false)
   retryOfLogId String? // set when this row is a manual retry of an earlier failed attempt
+  attempt      Int     @default(1) // automatic delivery attempt number for this lead
 
   requestUrl     String
   requestMethod  String
@@ -1252,6 +1304,7 @@ model LeadIntegrationLog {
   @@index([integrationId])
   @@index([leadId])
   @@index([success])
+  @@index([attemptedAt])
 }
 
 /// What a scheduled email contains.

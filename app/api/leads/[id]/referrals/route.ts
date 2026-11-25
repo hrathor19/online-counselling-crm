@@ -6,6 +6,7 @@ import { prisma } from '@/lib/prisma';
 import { canAccessLead } from '@/lib/lead-access';
 import { logActivity } from '@/lib/permissions';
 import { pushLeadToIntegrations } from '@/lib/lead-integration-engine';
+import { dispatchLeadPushes } from '@/lib/college-push';
 
 // Referrals are captured by counsellors while talking to the lead
 const REFERRAL_ROLES = ['SUPER_ADMIN', 'COUNSELLING_TL', 'COUNSELLING_AGENT'];
@@ -215,6 +216,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     pushLeadToIntegrations(referral.id, 'REFERRAL_CREATED').catch((err) =>
       console.error('[leads/[id]/referrals POST] integration push failed', err)
     );
+    // And to the referred lead's college, if that college has a live API push.
+    void dispatchLeadPushes([referral.id], 'INSERTED');
 
     return NextResponse.json(referral, { status: 201 });
   } catch (error) {

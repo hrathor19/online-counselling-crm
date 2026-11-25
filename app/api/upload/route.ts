@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth';
 import { z } from 'zod';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
+import { dispatchLeadPushes } from '@/lib/college-push';
 import { callingTypeForIngest } from '@/lib/lead-code';
 import { planPriorityAssignments } from '@/lib/priority-assignment';
 import { hasPermission } from '@/lib/permissions';
@@ -457,12 +458,24 @@ export async function POST(req: NextRequest) {
         repeatedInFile: repeatedInFile.length,
         // Rows that joined an existing student rather than creating a lead.
         merged:         toMerge.length + extraInFile.length,
+        // Not part of the response — used below to push merged leads.
+        mergedLeadIds:  toMerge.map((m) => m.leadId),
         total:          leads.length + clientErrorCount,
         invalidLeads,
       };
     });
 
-    return NextResponse.json(result, { status: 201 });
+    const { mergedLeadIds, ...response } = result;
+
+    // Hand the new leads — and existing students who just gained a college
+    // interest — to their colleges' API pushes. A lead still PENDING here is
+    // only sent by integrations set to push on insert.
+    void (async () => {
+      const created = await prisma.lead.findMany({ where: { batchId: response.batchId }, select: { id: true } });
+      await dispatchLeadPushes([...created.map((l) => l.id), ...mergedLeadIds], 'INSERTED');
+    })().catch((err) => console.error('[upload POST] college push dispatch failed', err));
+
+    return NextResponse.json(response, { status: 201 });
   } catch (error) {
     console.error('[upload POST]', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

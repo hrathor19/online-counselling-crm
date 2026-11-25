@@ -6,7 +6,7 @@ import { prisma } from '@/lib/prisma';
 import { logActivity } from '@/lib/permissions';
 import { executeIntegration } from '@/lib/lead-integration-engine';
 import { SAMPLE_LEAD_DATA } from '@/lib/lead-integration-fields';
-import { buildLeadTemplateData } from '@/lib/lead-integration-data';
+import { buildCollegePushData } from '@/lib/college-push';
 import { isActionUnlocked } from '@/lib/security-pin';
 import { PIN_GATED_ACTIONS } from '@/lib/pin-gated-actions';
 
@@ -46,13 +46,22 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         include: { profile: true, referredBy: { select: { name: true } }, assignedTo: { select: { id: true, name: true, email: true, employeeCode: true } } },
       });
       if (!lead) return NextResponse.json({ error: 'Lead not found' }, { status: 404 });
-      data = await buildLeadTemplateData(lead);
+      data = await buildCollegePushData(lead, integration);
       leadId = lead.id;
     } else {
-      data = SAMPLE_LEAD_DATA;
+      data = { ...SAMPLE_LEAD_DATA };
+      if (integration.collegeOptionId) {
+        const college = await prisma.dropdownOption.findUnique({ where: { id: integration.collegeOptionId }, select: { value: true } });
+        if (college) data.college = college.value;
+      }
     }
 
     const result = await executeIntegration(integration, data, { leadId, isTest: true });
+
+    // A successful test is what lets a per-college integration be switched on.
+    if (result.success) {
+      await prisma.leadIntegration.update({ where: { id: integration.id }, data: { verifiedAt: new Date() } });
+    }
 
     await logActivity({
       userId: session.user.id,
@@ -62,7 +71,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       description: `Sent a test request for lead integration "${integration.name}" (${result.success ? 'succeeded' : 'failed'})`,
     });
 
-    return NextResponse.json(result);
+    return NextResponse.json({ ...result, verified: result.success });
   } catch (error) {
     console.error('[super-admin/lead-integrations/[id]/test POST]', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
