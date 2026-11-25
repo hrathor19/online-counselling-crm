@@ -8,9 +8,16 @@ import { resolveCourseGroupId } from '@/lib/lms-course-lookup';
 // key). The static, client-safe field catalog/sample data live in
 // lib/lead-integration-fields.ts.
 
+/** The relations buildLeadTemplateData reads — every caller loads a lead with exactly this. */
+export const LEAD_TEMPLATE_INCLUDE = {
+  profile: true,
+  referredBy: { select: { id: true, name: true, phone: true, email: true } },
+  assignedTo: { select: { id: true, name: true, email: true, employeeCode: true } },
+} as const;
+
 export type LeadForTemplate = Lead & {
   profile?: LeadProfile | null;
-  referredBy?: { name: string } | null;
+  referredBy?: { id?: string; name: string; phone?: string | null; email?: string | null } | null;
   assignedTo?: {
     id: string;
     name: string;
@@ -57,7 +64,12 @@ export async function buildLeadTemplateData(lead: LeadForTemplate): Promise<Reco
     correctCity: lead.correctCity,
     correctState: lead.correctState,
     createdAt: lead.createdAt?.toISOString(),
+    // Who referred this lead — all empty on a lead that did not come by referral.
+    isReferral: lead.referredById ? 'Yes' : 'No',
+    referredBy_id: lead.referredBy?.id ?? lead.referredById ?? null,
     referredBy_name: lead.referredBy?.name ?? null,
+    referredBy_phone: lead.referredBy?.phone ?? null,
+    referredBy_email: lead.referredBy?.email ?? null,
 
     // Every agent identifier the receiving system might key on. Null on an
     // unassigned lead — the template renderer turns that into an empty string.

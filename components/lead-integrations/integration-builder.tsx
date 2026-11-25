@@ -47,6 +47,7 @@ interface IntegrationDetail {
   collegeOption?: { id: string; value: string } | null;
   pushWhen?: 'ON_INSERT' | 'ON_APPROVAL';
   maxAttempts?: number;
+  pushScope?: 'ALL_LEADS' | 'REFERRALS_ONLY';
   hasSigningSecret?: boolean;
   verifiedAt?: string | null;
 }
@@ -115,10 +116,8 @@ function randomSecret(): string {
 }
 
 /**
- * The integration editor. With `collegeOptionId` it edits a per-college lead
- * push (pushes that college's leads when they arrive); without, a global
- * integration. Everything else — endpoint, headers, body builder, test and
- * logs — is the same.
+ * The editor for one college's lead push: where its leads are sent, which of
+ * them, the headers, the field mapping, a test send and the delivery history.
  */
 export function LeadIntegrationBuilder({
   integrationId,
@@ -126,7 +125,7 @@ export function LeadIntegrationBuilder({
   collegeName,
 }: {
   integrationId?: string;
-  collegeOptionId?: string;
+  collegeOptionId: string;
   collegeName?: string;
 }) {
   const isEdit = !!integrationId;
@@ -143,20 +142,21 @@ export function LeadIntegrationBuilder({
     { key: 'Content-Type', value: 'application/json', isSecret: false },
   ]);
   const [queryParams, setQueryParams] = useState<ParamRow[]>([]);
-  const [bodyTemplate, setBodyTemplate] = useState(collegeOptionId ? COLLEGE_STARTER_BODY : '{\n  \n}');
+  const [bodyTemplate, setBodyTemplate] = useState(COLLEGE_STARTER_BODY);
   const [timeoutMs, setTimeoutMs] = useState(10000);
   const [saving, setSaving] = useState(false);
   const [loaded, setLoaded] = useState(!isEdit);
 
   // Per-college settings.
   const [pushWhen, setPushWhen] = useState<'ON_INSERT' | 'ON_APPROVAL'>('ON_INSERT');
+  const [pushScope, setPushScope] = useState<'ALL_LEADS' | 'REFERRALS_ONLY'>('ALL_LEADS');
   const [maxAttempts, setMaxAttempts] = useState(3);
   const [hasSigningSecret, setHasSigningSecret] = useState(false);
   const [signingSecret, setSigningSecret] = useState('');
   const [removeSigningSecret, setRemoveSigningSecret] = useState(false);
   const [verifiedAt, setVerifiedAt] = useState<string | null>(null);
-  const [college, setCollege] = useState<{ id: string; name: string } | null>(
-    collegeOptionId ? { id: collegeOptionId, name: collegeName ?? 'this college' } : null,
+  const [college, setCollege] = useState<{ id: string; name: string }>(
+    { id: collegeOptionId, name: collegeName ?? 'this college' },
   );
   const [toggling, setToggling] = useState(false);
   const [logsStatus, setLogsStatus] = useState<'all' | 'failed' | 'success'>('all');
@@ -205,6 +205,7 @@ export function LeadIntegrationBuilder({
     setTimeoutMs(integration.timeoutMs);
     if (integration.collegeOption) setCollege({ id: integration.collegeOption.id, name: integration.collegeOption.value });
     setPushWhen(integration.pushWhen ?? 'ON_INSERT');
+    setPushScope(integration.pushScope ?? 'ALL_LEADS');
     setMaxAttempts(integration.maxAttempts ?? 3);
     setHasSigningSecret(!!integration.hasSigningSecret);
     setVerifiedAt(integration.verifiedAt ?? null);
@@ -303,6 +304,7 @@ export function LeadIntegrationBuilder({
         ? {
             ...(isEdit ? {} : { collegeOptionId: college.id }),
             pushWhen,
+            pushScope,
             maxAttempts,
             // Omitted when untouched, so the stored secret is left alone.
             ...(signingSecret.trim() ? { signingSecret: signingSecret.trim() } : removeSigningSecret ? { signingSecret: '' } : {}),
@@ -364,7 +366,6 @@ export function LeadIntegrationBuilder({
       const json = await r.json();
       if (!r.ok) throw new Error(typeof json?.error === 'string' ? json.error : 'Failed to save');
 
-      qc.invalidateQueries({ queryKey: ['lead-integrations'] });
       qc.invalidateQueries({ queryKey: ['college-integrations'] });
       if (isEdit) {
         qc.invalidateQueries({ queryKey: ['lead-integration', integrationId] });
@@ -381,12 +382,8 @@ export function LeadIntegrationBuilder({
           toast({ title: 'Saved' });
         }
       } else {
-        toast({ title: 'Integration created', description: college ? 'Next: run Test & Send, then switch it on.' : undefined });
-        router.push(
-          college
-            ? `${COLLEGE_LIST_HREF}/${college.id}/${json.id}`
-            : `/dashboard/super-admin/configurations/lead-integrations/${json.id}`,
-        );
+        toast({ title: 'Integration created', description: 'Next: run Test & Send, then switch it on.' });
+        router.push(`${COLLEGE_LIST_HREF}/${college.id}/${json.id}`);
       }
     } catch (err) {
       toast({ variant: 'destructive', title: 'Save failed', description: err instanceof Error ? err.message : undefined });
@@ -526,9 +523,7 @@ export function LeadIntegrationBuilder({
             <Webhook className="h-5 w-5 sm:h-6 sm:w-6 text-primary" /> {isEdit ? name || 'Edit Integration' : 'New Integration'}
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            {college
-              ? `Push ${college.name}'s leads to its own system the moment they arrive in the CRM — configure the endpoint, headers and field mapping.`
-              : 'Configure the endpoint, headers, and field mapping for pushing referral leads to an external system.'}
+            Push {college.name}&apos;s leads to its own system the moment they arrive in the CRM — configure the endpoint, headers and field mapping.
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
@@ -594,32 +589,24 @@ export function LeadIntegrationBuilder({
               <div className="space-y-1.5">
                 <Label>Trigger</Label>
                 <Input
-                  value={college ? `New lead for ${college.name}` : 'Referral Lead Created'}
+                  value={`New lead for ${college.name}`}
                   disabled
                   className="bg-muted/40 text-muted-foreground"
                 />
               </div>
             </div>
 
-            {isEdit && college ? (
+            {isEdit ? (
               <div className="flex items-center justify-between gap-3 rounded-lg border border-border/60 bg-muted/20 px-4 py-3">
                 <div>
                   <p className="text-sm font-medium">Push live</p>
                   <p className="text-xs text-muted-foreground">
                     {verifiedAt
-                      ? `When on, every ${college.name} lead is pushed here automatically.`
+                      ? `When on, ${pushScope === 'REFERRALS_ONLY' ? `every referral lead for ${college.name}` : `every ${college.name} lead`} is pushed here automatically.`
                       : 'Run a successful Test & Send first — it unlocks this switch.'}
                   </p>
                 </div>
                 <Switch checked={isActive} disabled={toggling || (!verifiedAt && !isActive)} onCheckedChange={handleToggleActive} />
-              </div>
-            ) : isEdit ? (
-              <div className="flex items-center justify-between rounded-lg border border-border/60 bg-muted/20 px-4 py-3">
-                <div>
-                  <p className="text-sm font-medium">Active</p>
-                  <p className="text-xs text-muted-foreground">When on, every new referral lead is pushed here automatically.</p>
-                </div>
-                <Switch checked={isActive} onCheckedChange={setIsActive} />
               </div>
             ) : (
               <div className="rounded-lg border border-dashed border-border/60 bg-muted/10 px-4 py-3 text-xs text-muted-foreground">
@@ -677,6 +664,23 @@ export function LeadIntegrationBuilder({
                   </p>
                 </div>
                 <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <Label>Which leads</Label>
+                    <Select value={pushScope} onValueChange={(v) => setPushScope(v as 'ALL_LEADS' | 'REFERRALS_ONLY')}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="ALL_LEADS">All leads for this college</SelectItem>
+                        <SelectItem value="REFERRALS_ONLY">Referral leads only</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <p className="text-[11px] text-muted-foreground">
+                      {pushScope === 'ALL_LEADS'
+                        ? 'Every lead for this college, including those a counsellor adds as a referral.'
+                        : 'Only leads a counsellor captured through Add Referral. Everything else for this college stays in the CRM.'}
+                    </p>
+                  </div>
                   <div className="space-y-1.5">
                     <Label>Send when</Label>
                     <Select value={pushWhen} onValueChange={(v) => setPushWhen(v as 'ON_INSERT' | 'ON_APPROVAL')}>

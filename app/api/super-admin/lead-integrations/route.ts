@@ -11,44 +11,9 @@ import { withoutSigningSecret } from '@/lib/integration-admin';
 import { isActionUnlocked } from '@/lib/security-pin';
 import { PIN_GATED_ACTIONS } from '@/lib/pin-gated-actions';
 
-// Configuring outbound pushes to a third-party LMS is Super-Admin-only, same
+// Configuring outbound pushes to a college's system is Super-Admin-only, same
 // as API Keys / Manage Permissions — not part of the feature permission matrix.
-export async function GET() {
-  try {
-    const session = await getServerSession(authOptions);
-    if (!session || session.user.role !== 'SUPER_ADMIN') {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-    if (!(await isActionUnlocked(session.user.id, PIN_GATED_ACTIONS.LEAD_INTEGRATIONS))) {
-      return NextResponse.json({ error: 'This tool is PIN-locked — verify your security PIN first', code: 'PIN_LOCKED' }, { status: 423 });
-    }
-
-    // Per-college integrations are managed in the College API Push module, so
-    // this list is the global ones only.
-    const integrations = await prisma.leadIntegration.findMany({
-      where: { collegeOptionId: null },
-      orderBy: { createdAt: 'desc' },
-      include: {
-        createdBy: { select: { id: true, name: true } },
-        logs: { take: 1, orderBy: { attemptedAt: 'desc' }, select: { success: true, attemptedAt: true, isTest: true } },
-      },
-    });
-
-    const sanitized = integrations.map(({ headers, queryParams, bodyTemplate, logs, signingSecret, ...rest }) => ({
-      ...rest,
-      headers: sanitizeHeadersForClient((headers as unknown as IntegrationHeader[]) ?? []),
-      queryParams,
-      bodyTemplate,
-      lastPush: logs[0] ?? null,
-    }));
-
-    return NextResponse.json(sanitized);
-  } catch (error) {
-    console.error('[super-admin/lead-integrations GET]', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
-  }
-}
-
+// Listing happens per college, through /api/super-admin/college-integrations.
 export async function POST(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
@@ -69,28 +34,24 @@ export async function POST(req: NextRequest) {
     // New integrations start OFF — an admin must verify the mapping via
     // Test & Send before flipping it on, so a half-configured integration
     // can't silently start pushing real leads to a third party.
-    let collegeOptionId: string | null = null;
-    if (d.collegeOptionId) {
-      const college = await prisma.dropdownOption.findFirst({
-        where: { id: d.collegeOptionId, type: 'COLLEGE' },
-        select: { id: true },
-      });
-      if (!college) return NextResponse.json({ error: 'College not found' }, { status: 404 });
-      collegeOptionId = college.id;
+    if (!d.collegeOptionId) {
+      return NextResponse.json({ error: 'Choose the college this push is for' }, { status: 400 });
     }
+    const college = await prisma.dropdownOption.findFirst({
+      where: { id: d.collegeOptionId, type: 'COLLEGE' },
+      select: { id: true },
+    });
+    if (!college) return NextResponse.json({ error: 'College not found' }, { status: 404 });
 
     const integration = await prisma.leadIntegration.create({
       data: {
         name: d.name,
         isActive: false,
-        ...(collegeOptionId
-          ? {
-              trigger: 'LEAD_CREATED' as const,
-              collegeOptionId,
-              pushWhen: d.pushWhen ?? 'ON_INSERT',
-              maxAttempts: d.maxAttempts ?? 3,
-            }
-          : {}),
+        trigger: 'LEAD_CREATED',
+        collegeOptionId: college.id,
+        pushWhen: d.pushWhen ?? 'ON_INSERT',
+        pushScope: d.pushScope ?? 'ALL_LEADS',
+        maxAttempts: d.maxAttempts ?? 3,
         signingSecret: d.signingSecret ? encryptSecret(d.signingSecret) : null,
         method: d.method,
         url: d.url,

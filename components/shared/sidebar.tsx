@@ -13,7 +13,7 @@ import {
   GitBranch, CalendarClock, X, ChevronsLeft, ChevronsRight,
   GraduationCap,
   Hash,
-  Megaphone, Gauge, Receipt, KeyRound, Settings, Trash2, Webhook, Send, Search, Target, FileBarChart, Mail, Link2, Zap, Shuffle, Clock3, Building2,
+  Megaphone, Gauge, Receipt, KeyRound, Settings, Trash2, Send, Search, Target, FileBarChart, Mail, Link2, Zap, Shuffle, Clock3, Building2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -378,12 +378,6 @@ const NAV: NavEntry[] = [
         href: '/dashboard/super-admin/configurations/api-keys',
         label: 'API Keys',
         icon: KeyRound,
-        roles: ['SUPER_ADMIN'],
-      },
-      {
-        href: '/dashboard/super-admin/configurations/lead-integrations',
-        label: 'Lead Integrations',
-        icon: Webhook,
         roles: ['SUPER_ADMIN'],
       },
       {

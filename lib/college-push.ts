@@ -1,7 +1,7 @@
 import { Prisma, type LeadIntegration } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { executeIntegration } from '@/lib/lead-integration-engine';
-import { buildLeadTemplateData } from '@/lib/lead-integration-data';
+import { buildLeadTemplateData, LEAD_TEMPLATE_INCLUDE } from '@/lib/lead-integration-data';
 import { pushQueue, pushInflight } from '@/lib/push-queue';
 
 /**
@@ -24,12 +24,6 @@ export type PushEvent = 'INSERTED' | 'APPROVED';
 /** Wait before automatic attempt 2, 3, 4… of a retryable failure. */
 const RETRY_DELAYS_MS = [10_000, 60_000, 300_000, 900_000];
 
-const LEAD_INCLUDE = {
-  profile: true,
-  referredBy: { select: { name: true } },
-  assignedTo: { select: { id: true, name: true, email: true, employeeCode: true } },
-} as const;
-
 const norm = (s: string | null | undefined) => (s ?? '').trim().toLowerCase();
 
 function chunk<T>(items: T[], size: number): T[][] {
@@ -38,7 +32,7 @@ function chunk<T>(items: T[], size: number): T[][] {
   return out;
 }
 
-type LeadWithRelations = Prisma.LeadGetPayload<{ include: typeof LEAD_INCLUDE }>;
+type LeadWithRelations = Prisma.LeadGetPayload<{ include: typeof LEAD_TEMPLATE_INCLUDE }>;
 
 /**
  * The template data a college receives for a lead.
@@ -66,11 +60,20 @@ export async function buildCollegePushData(
   return buildLeadTemplateData({ ...lead, college: option.value, course: interest?.course ?? lead.course });
 }
 
-/** Whether `integration` should receive a lead of this status for this event. */
-function eligible(integration: Pick<LeadIntegration, 'pushWhen'>, status: string, event: PushEvent): boolean {
-  if (status === 'DISAPPROVED') return false;
-  if (event === 'APPROVED') return integration.pushWhen === 'ON_APPROVAL' && status === 'APPROVED';
-  return integration.pushWhen === 'ON_INSERT' || status === 'APPROVED';
+/**
+ * Whether `integration` should receive this lead for this event: it must be in
+ * the integration's scope (all leads, or referrals only) and in the right
+ * approval state for when the integration sends.
+ */
+function eligible(
+  integration: Pick<LeadIntegration, 'pushWhen' | 'pushScope'>,
+  lead: { status: string; referredById: string | null },
+  event: PushEvent,
+): boolean {
+  if (lead.status === 'DISAPPROVED') return false;
+  if (integration.pushScope === 'REFERRALS_ONLY' && !lead.referredById) return false;
+  if (event === 'APPROVED') return integration.pushWhen === 'ON_APPROVAL' && lead.status === 'APPROVED';
+  return integration.pushWhen === 'ON_INSERT' || lead.status === 'APPROVED';
 }
 
 function runAttempt(integrationId: string, leadId: string, attempt: number, key: string): void {
@@ -88,8 +91,8 @@ function runAttempt(integrationId: string, leadId: string, attempt: number, key:
       });
       if (already) return;
 
-      const lead = await prisma.lead.findUnique({ where: { id: leadId }, include: LEAD_INCLUDE });
-      if (!lead || !eligible(integration, lead.status, 'INSERTED')) return;
+      const lead = await prisma.lead.findUnique({ where: { id: leadId }, include: LEAD_TEMPLATE_INCLUDE });
+      if (!lead || !eligible(integration, lead, 'INSERTED')) return;
 
       const data = await buildCollegePushData(lead, integration);
       const result = await executeIntegration(integration, data, { leadId, attempt });
@@ -145,7 +148,7 @@ export async function dispatchLeadPushes(leadIds: string[], event: PushEvent): P
     for (const ids of chunk(leadIds, 200)) {
       const leads = await prisma.lead.findMany({
         where: { id: { in: ids } },
-        select: { id: true, college: true, status: true },
+        select: { id: true, college: true, status: true, referredById: true },
       });
 
       // A lead belongs to every college it has shown interest in, not only the
@@ -166,7 +169,7 @@ export async function dispatchLeadPushes(leadIds: string[], event: PushEvent): P
       for (const lead of leads) {
         for (const college of Array.from(collegesOf.get(lead.id) ?? [])) {
           for (const i of byCollege.get(college) ?? []) {
-            if (eligible(i, lead.status, event)) candidates.push({ integrationId: i.id, leadId: lead.id });
+            if (eligible(i, lead, event)) candidates.push({ integrationId: i.id, leadId: lead.id });
           }
         }
       }
@@ -192,13 +195,14 @@ export async function dispatchLeadPushes(leadIds: string[], event: PushEvent): P
 
 /** Leads of the integration's college that it has not yet delivered. */
 export function unsentLeadsWhere(
-  integration: Pick<LeadIntegration, 'id' | 'pushWhen'>,
+  integration: Pick<LeadIntegration, 'id' | 'pushWhen' | 'pushScope'>,
   collegeName: string,
 ): Prisma.LeadWhereInput {
   const college = { equals: collegeName.trim(), mode: 'insensitive' as const };
   return {
     OR: [{ college }, { interests: { some: { college } } }],
     status: integration.pushWhen === 'ON_APPROVAL' ? 'APPROVED' : { not: 'DISAPPROVED' },
+    ...(integration.pushScope === 'REFERRALS_ONLY' ? { referredById: { not: null } } : {}),
     integrationPushes: { none: { integrationId: integration.id } },
   };
 }

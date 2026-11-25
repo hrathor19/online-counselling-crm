@@ -12,7 +12,7 @@ import {
   X, Mail, PhoneCall, CalendarClock, PhoneIncoming,
   LayoutList, CheckCircle2, Loader2, PlusCircle, UserCheck,
   UserCircle2, ChevronDown, Search, Check, ExternalLink,
-  GitBranch, UserPlus, FileCheck, Receipt, Clock3,
+  GitBranch, UserPlus, FileCheck, Receipt, Clock3, Send,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/use-toast';
@@ -1261,7 +1261,7 @@ export function LeadDetailDrawer({ leadId, onClose, canSubmitFeedback = false }:
 
 interface TimelineEvent {
   id: string;
-  type: 'CREATED' | 'APPROVED' | 'ASSIGNED' | 'FEEDBACK' | 'ARCHIVED_FEEDBACK' | 'SCHEDULED_CALL' | 'RECEIPT';
+  type: 'CREATED' | 'APPROVED' | 'ASSIGNED' | 'FEEDBACK' | 'ARCHIVED_FEEDBACK' | 'SCHEDULED_CALL' | 'RECEIPT' | 'PUSHED';
   timestamp: string;
   title: string;
   subtitle?: string;
@@ -1276,6 +1276,7 @@ const TIMELINE_ICON: Record<TimelineEvent['type'], React.ReactNode> = {
   ARCHIVED_FEEDBACK: <PhoneIncoming className="h-4 w-4 text-muted-foreground" />,
   SCHEDULED_CALL: <Clock3       className="h-4 w-4 text-amber-500" />,
   RECEIPT:        <Receipt      className="h-4 w-4 text-green-600" />,
+  PUSHED:         <Send         className="h-4 w-4 text-sky-500" />,
 };
 
 const TIMELINE_DOT: Record<TimelineEvent['type'], string> = {
@@ -1286,6 +1287,7 @@ const TIMELINE_DOT: Record<TimelineEvent['type'], string> = {
   ARCHIVED_FEEDBACK: 'bg-muted-foreground/50',
   SCHEDULED_CALL: 'bg-amber-500',
   RECEIPT:        'bg-green-600',
+  PUSHED:         'bg-sky-500',
 };
 
 const SCHEDULE_STATUS_BADGE: Record<string, string> = {
@@ -1360,6 +1362,16 @@ function TimelineTab({ leadId }: { leadId: string }) {
                   )}
                   {event.badge && (event.type === 'ASSIGNED') && (
                     <span className="shrink-0 rounded-full border border-violet-300/50 bg-violet-500/10 px-2 py-0.5 text-[10px] font-semibold text-violet-700 dark:text-violet-400">
+                      {event.badge}
+                    </span>
+                  )}
+                  {event.badge && (event.type === 'PUSHED') && (
+                    <span className={cn(
+                      'shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold',
+                      event.badge === 'FAILED'
+                        ? 'border-red-300/50 bg-red-500/10 text-red-700 dark:text-red-400'
+                        : 'border-sky-300/50 bg-sky-500/10 text-sky-700 dark:text-sky-400',
+                    )}>
                       {event.badge}
                     </span>
                   )}

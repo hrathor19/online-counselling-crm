@@ -11,6 +11,17 @@ const nextConfig = {
   // The 1GB server prerenders slowly under swap pressure; the default 60s
   // per-page timeout is too strict there.
   staticPageGenerationTimeout: 300,
+  // The old global "Lead Integrations" module is gone — every push is now set up
+  // per college under College API Push. Bookmarks to the old pages land there.
+  async redirects() {
+    return [
+      {
+        source: '/dashboard/super-admin/configurations/lead-integrations/:path*',
+        destination: '/dashboard/super-admin/configurations/college-integrations',
+        permanent: false,
+      },
+    ];
+  },
   async headers() {
     return [
       {

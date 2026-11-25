@@ -174,14 +174,23 @@ enum ActivityAction {
   LEADS_EXPORTED
 }
 
-// Which CRM event fires a configured push — only referral-lead creation for
-// now (that's the one concrete need); more triggers can be added to this
-// enum later without touching the LeadIntegration table shape.
+// Which CRM event fires a configured push. Every integration is now a
+// per-college LEAD_CREATED push (College API Push). REFERRAL_CREATED belonged to
+// the retired global "Lead Integrations" module; nothing reads or writes it any
+// more, and the value stays only so the database enum does not have to change.
 enum LeadIntegrationTrigger {
   REFERRAL_CREATED
   /// A lead arrives in the CRM for the integration's college (CSV upload, API,
   /// single add or an extra interest merged onto an existing student).
   LEAD_CREATED
+}
+
+/// For a LEAD_CREATED integration: which of the college's leads it receives.
+enum LeadPushScope {
+  /// Every lead for the college, however it arrived.
+  ALL_LEADS
+  /// Only leads captured through a referral (Lead.referredById is set).
+  REFERRALS_ONLY
 }
 
 /// For a LEAD_CREATED integration: when the push goes out.
@@ -1221,7 +1230,7 @@ model LeadIntegration {
   id           String                 @id @default(cuid())
   name         String
   isActive     Boolean                @default(false) // off until an admin explicitly verifies it via Test & Send
-  trigger      LeadIntegrationTrigger @default(REFERRAL_CREATED)
+  trigger      LeadIntegrationTrigger @default(LEAD_CREATED)
   method       String                 @default("POST")
   url          String
   headers      Json // [{ key, value, isSecret }] — isSecret values are AES-256-GCM encrypted, see lib/integration-crypto.ts
@@ -1236,6 +1245,7 @@ model LeadIntegration {
   collegeOptionId String?
   collegeOption   DropdownOption? @relation("CollegeIntegrations", fields: [collegeOptionId], references: [id], onDelete: SetNull)
   pushWhen        LeadPushWhen    @default(ON_INSERT)
+  pushScope       LeadPushScope   @default(ALL_LEADS)
   /// Delivery attempts per lead for a retryable failure (network error,
   /// timeout, HTTP 408/425/429/5xx). A 4xx is the college rejecting the data,
   /// so it is not retried automatically.

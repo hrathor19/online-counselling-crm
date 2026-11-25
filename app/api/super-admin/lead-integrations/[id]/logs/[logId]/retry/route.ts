@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { executeIntegration } from '@/lib/lead-integration-engine';
 import { buildCollegePushData } from '@/lib/college-push';
+import { LEAD_TEMPLATE_INCLUDE } from '@/lib/lead-integration-data';
 import { isActionUnlocked } from '@/lib/security-pin';
 import { PIN_GATED_ACTIONS } from '@/lib/pin-gated-actions';
 
@@ -34,7 +35,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
 
     const lead = await prisma.lead.findUnique({
       where: { id: log.leadId },
-      include: { profile: true, referredBy: { select: { name: true } }, assignedTo: { select: { id: true, name: true, email: true, employeeCode: true } } },
+      include: LEAD_TEMPLATE_INCLUDE,
     });
     if (!lead) return NextResponse.json({ error: 'The original lead no longer exists' }, { status: 404 });
 

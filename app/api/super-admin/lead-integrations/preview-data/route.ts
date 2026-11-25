@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
-import { buildLeadTemplateData } from '@/lib/lead-integration-data';
+import { buildLeadTemplateData, LEAD_TEMPLATE_INCLUDE } from '@/lib/lead-integration-data';
 import { isActionUnlocked } from '@/lib/security-pin';
 import { PIN_GATED_ACTIONS } from '@/lib/pin-gated-actions';
 
@@ -24,7 +24,7 @@ export async function GET(req: NextRequest) {
 
     const lead = await prisma.lead.findUnique({
       where: { id: leadId },
-      include: { profile: true, referredBy: { select: { name: true } }, assignedTo: { select: { id: true, name: true, email: true, employeeCode: true } } },
+      include: LEAD_TEMPLATE_INCLUDE,
     });
     if (!lead) return NextResponse.json({ error: 'Lead not found' }, { status: 404 });
 

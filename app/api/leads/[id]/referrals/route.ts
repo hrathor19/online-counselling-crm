@@ -5,7 +5,6 @@ import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { canAccessLead } from '@/lib/lead-access';
 import { logActivity } from '@/lib/permissions';
-import { pushLeadToIntegrations } from '@/lib/lead-integration-engine';
 import { dispatchLeadPushes } from '@/lib/college-push';
 
 // Referrals are captured by counsellors while talking to the lead
@@ -209,14 +208,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       return created;
     });
 
-    // Fire-and-forget: this is a persistent Node process (not serverless),
-    // so the push keeps running after the response below is sent. Never
-    // awaited — a slow or down third-party LMS must not delay or break
-    // referral capture for the counsellor.
-    pushLeadToIntegrations(referral.id, 'REFERRAL_CREATED').catch((err) =>
-      console.error('[leads/[id]/referrals POST] integration push failed', err)
-    );
-    // And to the referred lead's college, if that college has a live API push.
+    // Hand the referral to its college's API push, if that college has one
+    // live. Fire-and-forget: this is a persistent Node process, so the push
+    // keeps running after the response is sent, and a slow or down college
+    // endpoint must never delay or break referral capture for the counsellor.
     void dispatchLeadPushes([referral.id], 'INSERTED');
 
     return NextResponse.json(referral, { status: 201 });

@@ -7,6 +7,7 @@ import { logActivity } from '@/lib/permissions';
 import { executeIntegration } from '@/lib/lead-integration-engine';
 import { SAMPLE_LEAD_DATA } from '@/lib/lead-integration-fields';
 import { buildCollegePushData } from '@/lib/college-push';
+import { LEAD_TEMPLATE_INCLUDE } from '@/lib/lead-integration-data';
 import { isActionUnlocked } from '@/lib/security-pin';
 import { PIN_GATED_ACTIONS } from '@/lib/pin-gated-actions';
 
@@ -43,7 +44,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     if ('leadId' in parsed.data) {
       const lead = await prisma.lead.findUnique({
         where: { id: parsed.data.leadId },
-        include: { profile: true, referredBy: { select: { name: true } }, assignedTo: { select: { id: true, name: true, email: true, employeeCode: true } } },
+        include: LEAD_TEMPLATE_INCLUDE,
       });
       if (!lead) return NextResponse.json({ error: 'Lead not found' }, { status: 404 });
       data = await buildCollegePushData(lead, integration);

@@ -111,6 +111,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
           ? {
               verifiedAt,
               pushWhen: d.pushWhen ?? existing.pushWhen,
+              pushScope: d.pushScope ?? existing.pushScope,
               maxAttempts: d.maxAttempts ?? existing.maxAttempts,
             }
           : {}),

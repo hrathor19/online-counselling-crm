@@ -44,7 +44,11 @@ export const FIELD_CATALOG: FieldDef[] = [
   { key: 'correctCity', label: 'Verified City', group: 'Lead' },
   { key: 'correctState', label: 'Verified State', group: 'Lead' },
   { key: 'createdAt', label: 'Created At', group: 'Lead' },
+  { key: 'isReferral', label: 'Is a Referral (Yes/No)', group: 'Lead' },
+  { key: 'referredBy_id', label: 'Referred By (Lead ID)', group: 'Lead' },
   { key: 'referredBy_name', label: 'Referred By (Name)', group: 'Lead' },
+  { key: 'referredBy_phone', label: 'Referred By (Phone)', group: 'Lead' },
+  { key: 'referredBy_email', label: 'Referred By (Email)', group: 'Lead' },
 
   // Agent — whoever the lead is currently assigned to. All null on an
   // unassigned lead, which renders as an empty string in the template.
@@ -110,7 +114,11 @@ export const SAMPLE_LEAD_DATA: Record<string, unknown> = {
   correctCity: 'Patna',
   correctState: 'Bihar',
   createdAt: new Date().toISOString(),
+  isReferral: 'Yes',
+  referredBy_id: 'LID1000001',
   referredBy_name: 'Referring Lead Name',
+  referredBy_phone: '9876543210',
+  referredBy_email: 'referrer@example.com',
   assignedTo_name: 'Assigned Agent Name',
   assignedTo_employeeCode: 'EMP-1005',
   assignedTo_id: 'cmrbs2soa000059hhdf5kcdoq',

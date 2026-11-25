@@ -12,7 +12,8 @@ export type TimelineEventType =
   | 'FEEDBACK'
   | 'ARCHIVED_FEEDBACK'
   | 'SCHEDULED_CALL'
-  | 'RECEIPT';
+  | 'RECEIPT'
+  | 'PUSHED';
 
 export interface TimelineEvent {
   id: string;
@@ -192,6 +193,48 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
         title: `${r.type === 'APPLICATION' ? 'Application' : 'Admission'} receipt uploaded`,
         subtitle: [r.campusName, `₹${r.amountPaid}`, `by ${r.uploadedBy.name}`].filter(Boolean).join(' · '),
         badge: r.type,
+      });
+    }
+
+    // Delivery to a college's own system (College API Push). Everyone who can
+    // see the lead sees that it was sent; only managers see a failed delivery,
+    // since the reason is about the college's endpoint and not the counsellor's
+    // work.
+    const [pushes, failedPushes] = await Promise.all([
+      prisma.leadIntegrationPush.findMany({
+        where: { leadId: params.id },
+        select: { integrationId: true, pushedAt: true, integration: { select: { name: true, collegeOption: { select: { value: true } } } } },
+      }),
+      isAgent
+        ? Promise.resolve([])
+        : prisma.leadIntegrationLog.findMany({
+            where: { leadId: params.id, success: false, isTest: false },
+            orderBy: { attemptedAt: 'desc' },
+            select: { integrationId: true, attemptedAt: true, attempt: true, responseStatus: true, errorMessage: true, integration: { select: { name: true, collegeOption: { select: { value: true } } } } },
+          }),
+    ]);
+    const deliveredTo = new Set(pushes.map((p) => p.integrationId));
+    for (const p of pushes) {
+      events.push({
+        id: `pushed-${p.integrationId}`,
+        type: 'PUSHED',
+        timestamp: p.pushedAt.toISOString(),
+        title: `Sent to ${p.integration.collegeOption?.value ?? 'the college'}'s system`,
+        subtitle: p.integration.name,
+        badge: 'SENT',
+      });
+    }
+    const reported = new Set<string>();
+    for (const f of failedPushes) {
+      if (deliveredTo.has(f.integrationId) || reported.has(f.integrationId)) continue;
+      reported.add(f.integrationId);
+      events.push({
+        id: `push-failed-${f.integrationId}`,
+        type: 'PUSHED',
+        timestamp: f.attemptedAt.toISOString(),
+        title: `Delivery to ${f.integration.collegeOption?.value ?? 'the college'}'s system failed`,
+        subtitle: [f.integration.name, f.responseStatus ? `HTTP ${f.responseStatus}` : f.errorMessage, f.attempt > 1 ? `attempt ${f.attempt}` : null].filter(Boolean).join(' · '),
+        badge: 'FAILED',
       });
     }
 

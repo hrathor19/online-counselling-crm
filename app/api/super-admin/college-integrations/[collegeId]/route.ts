@@ -21,7 +21,7 @@ export async function GET(_req: NextRequest, { params }: { params: { collegeId: 
       where: { collegeOptionId: college.id },
       orderBy: { createdAt: 'asc' },
       select: {
-        id: true, name: true, isActive: true, method: true, url: true, pushWhen: true, maxAttempts: true,
+        id: true, name: true, isActive: true, method: true, url: true, pushWhen: true, pushScope: true, maxAttempts: true,
         timeoutMs: true, verifiedAt: true, signingSecret: true, createdAt: true, updatedAt: true,
       },
     });

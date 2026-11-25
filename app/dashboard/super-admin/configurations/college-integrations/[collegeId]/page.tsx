@@ -25,6 +25,7 @@ interface IntegrationRow {
   method: string;
   url: string;
   pushWhen: 'ON_INSERT' | 'ON_APPROVAL';
+  pushScope: 'ALL_LEADS' | 'REFERRALS_ONLY';
   maxAttempts: number;
   verifiedAt: string | null;
   hasSigningSecret: boolean;
@@ -208,6 +209,9 @@ function CollegeContent({ collegeId }: { collegeId: string }) {
                         )}
                       >
                         <ShieldCheck className="h-3 w-3" /> {i.verifiedAt ? 'Verified' : 'Not verified'}
+                      </span>
+                      <span className="rounded-full border border-border px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">
+                        {i.pushScope === 'REFERRALS_ONLY' ? 'Referrals only' : 'All leads'}
                       </span>
                       <span className="rounded-full border border-border px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">
                         {i.pushWhen === 'ON_INSERT' ? 'On insert' : 'After approval'}

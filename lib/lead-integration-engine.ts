@@ -1,9 +1,8 @@
 import { createHmac } from 'crypto';
-import { Prisma, type LeadIntegration, type LeadIntegrationTrigger } from '@prisma/client';
+import { Prisma, type LeadIntegration } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { decryptSecret, encryptSecret, maskSecret, SECRET_UNCHANGED_SENTINEL } from '@/lib/integration-crypto';
 import { renderTemplate, renderText } from '@/lib/lead-integration-template';
-import { buildLeadTemplateData } from '@/lib/lead-integration-data';
 import { assertPublicHttpUrl } from '@/lib/url-guard';
 
 export interface IntegrationHeader {
@@ -64,39 +63,6 @@ export function prepareHeadersForStorage(
     }
     return { ...h, value: encryptSecret(h.value) };
   });
-}
-
-/**
- * Fans out a lead to every active integration configured for `trigger`.
- * Fire-and-forget from the caller's perspective (never throws) — this app
- * has no job queue, and it runs on a persistent PM2 Node process (not
- * serverless), so a call kicked off without `await` right before an API
- * route returns keeps running in the background after the response is
- * sent. A slow/down third-party API therefore never delays or breaks the
- * lead-creation flow that triggered it.
- */
-export async function pushLeadToIntegrations(leadId: string, trigger: LeadIntegrationTrigger): Promise<void> {
-  try {
-    const integrations = await prisma.leadIntegration.findMany({ where: { trigger, isActive: true } });
-    if (integrations.length === 0) return;
-
-    const lead = await prisma.lead.findUnique({
-      where: { id: leadId },
-      include: {
-        profile: true,
-        referredBy: { select: { name: true } },
-        assignedTo: { select: { id: true, name: true, email: true, employeeCode: true } },
-      },
-    });
-    if (!lead) return;
-
-    const data = await buildLeadTemplateData(lead);
-    await Promise.all(
-      integrations.map((integration) => executeIntegration(integration, data, { leadId, isTest: false }))
-    );
-  } catch (err) {
-    console.error('[lead-integration-engine] pushLeadToIntegrations failed', err);
-  }
 }
 
 /**
