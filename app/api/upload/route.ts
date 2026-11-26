@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth';
 import { z } from 'zod';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
+import { invalidateFilterOptions } from '@/lib/filter-options-cache';
 import { dispatchLeadPushes } from '@/lib/college-push';
 import { callingTypeForIngest } from '@/lib/lead-code';
 import { planPriorityAssignments } from '@/lib/priority-assignment';
@@ -474,6 +475,9 @@ export async function POST(req: NextRequest) {
       const created = await prisma.lead.findMany({ where: { batchId: response.batchId }, select: { id: true } });
       await dispatchLeadPushes([...created.map((l) => l.id), ...mergedLeadIds], 'INSERTED');
     })().catch((err) => console.error('[upload POST] college push dispatch failed', err));
+
+    // New colleges, sources or cities should be offered by the filters at once.
+    invalidateFilterOptions();
 
     return NextResponse.json(response, { status: 201 });
   } catch (error) {

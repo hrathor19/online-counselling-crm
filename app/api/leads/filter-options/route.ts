@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
+import { getFilterOptions } from '@/lib/filter-options-cache';
 import { UNSET_CLIENT_TYPE, COLLEGE_CLIENT_TYPES } from '@/lib/college-attributes';
 
 /**
@@ -33,17 +34,10 @@ import { UNSET_CLIENT_TYPE, COLLEGE_CLIENT_TYPES } from '@/lib/college-attribute
  * so a module-level value is genuinely shared, and a restart clears it — which
  * is the behaviour wanted after a bulk upload introduces new values.
  */
-const FILTER_OPTIONS_TTL_MS = 5 * 60 * 1000;
-
-let cachedOptions: { at: number; payload: unknown } | null = null;
-let optionsInFlight: Promise<unknown> | null = null;
-
 /*
- * No exported invalidate hook: a Next route file may only export route handlers,
- * and the five-minute TTL covers the case it would serve anyway — after a bulk
- * upload introduces new colleges or cities, the lists catch up within a few
- * minutes on their own. If it ever needs to be immediate, the cache moves to
- * lib/ and the upload route clears it.
+ * The cache itself is in lib/filter-options-cache.ts so uploads can clear it —
+ * a new college, source or city then shows up straight away instead of after
+ * the five-minute TTL.
  */
 
 async function loadFilterOptions() {
@@ -112,16 +106,7 @@ export async function GET() {
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   try {
-    const fresh = cachedOptions && Date.now() - cachedOptions.at < FILTER_OPTIONS_TTL_MS;
-    if (fresh) return NextResponse.json(cachedOptions!.payload);
-
-    // Share one load between everyone who arrives while it is running.
-    if (!optionsInFlight) {
-      optionsInFlight = loadFilterOptions().finally(() => { optionsInFlight = null; });
-    }
-    const payload = await optionsInFlight;
-    // Only a successful load is cached; a failure falls through and is retried.
-    cachedOptions = { at: Date.now(), payload };
+    const payload = await getFilterOptions(loadFilterOptions);
     return NextResponse.json(payload);
   } catch (error) {
     console.error('[leads/filter-options GET]', error);

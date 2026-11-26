@@ -13,7 +13,7 @@ import {
   GitBranch, CalendarClock, X, ChevronsLeft, ChevronsRight,
   GraduationCap,
   Hash,
-  Megaphone, Gauge, Receipt, KeyRound, Settings, Trash2, Send, Search, Target, FileBarChart, Mail, Link2, Zap, Shuffle, Clock3, Building2,
+  Megaphone, Gauge, Receipt, KeyRound, Settings, Trash2, Send, Search, Target, FileBarChart, Mail, Link2, Zap, Shuffle, Clock3, Building2, FileUp,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -136,6 +136,13 @@ const NAV: NavEntry[] = [
         label: 'Upload Limits',
         icon: Gauge,
         roles: ['SUPER_ADMIN'],
+      },
+      {
+        href: '/dashboard/super-admin/import-history',
+        label: 'Import Historical Leads',
+        icon: FileUp,
+        roles: ['SUPER_ADMIN'],
+        exact: true,
       },
       {
         href: '/dashboard/super-admin/bulk-delete-leads',
