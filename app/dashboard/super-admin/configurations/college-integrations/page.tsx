@@ -118,7 +118,7 @@ function CollegeIntegrationsContent() {
           <Send className="h-5 w-5 text-primary sm:h-6 sm:w-6" /> College API Push
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Send each college its leads, the moment they arrive in the CRM, straight into that college&apos;s own system.
+          Every new lead is sent, the moment it arrives in the CRM, to each college API that is switched on, whichever college the lead names.
           Set up an endpoint per college, test it, then switch it on — only the colleges you enable receive anything.
         </p>
       </div>

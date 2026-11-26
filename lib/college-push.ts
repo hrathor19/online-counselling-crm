@@ -5,12 +5,12 @@ import { buildLeadTemplateData, LEAD_TEMPLATE_INCLUDE } from '@/lib/lead-integra
 import { pushQueue, pushInflight } from '@/lib/push-queue';
 
 /**
- * Per-college lead push.
+ * Lead push to the colleges' APIs.
  *
- * Each college can have one or more LEAD_CREATED integrations. When a lead
- * lands for that college — matched on Lead.college against the college's name,
- * the same trimmed, case-insensitive rule the rest of the CRM uses — it is
- * delivered to every live integration of that college.
+ * Each college can have one or more LEAD_CREATED integrations. Every lead that
+ * arrives is delivered to every live integration, regardless of which college
+ * (if any) the lead names; each integration's own scope (all leads / referrals
+ * only) and send-when rule still apply.
  *
  * Everything here is fire-and-forget from the caller's side and never throws:
  * a slow or broken college endpoint must never delay or fail lead capture.
@@ -23,8 +23,6 @@ export type PushEvent = 'INSERTED' | 'APPROVED';
 
 /** Wait before automatic attempt 2, 3, 4… of a retryable failure. */
 const RETRY_DELAYS_MS = [10_000, 60_000, 300_000, 900_000];
-
-const norm = (s: string | null | undefined) => (s ?? '').trim().toLowerCase();
 
 function chunk<T>(items: T[], size: number): T[][] {
   const out: T[][] = [];
@@ -57,7 +55,10 @@ export async function buildCollegePushData(
     orderBy: { createdAt: 'desc' },
     select: { course: true },
   });
-  return buildLeadTemplateData({ ...lead, college: option.value, course: interest?.course ?? lead.course });
+  // Leads go to every live integration, so one that never enquired about this
+  // college is sent as it is rather than relabelled with the college's name.
+  if (!interest) return buildLeadTemplateData(lead);
+  return buildLeadTemplateData({ ...lead, college: option.value, course: interest.course ?? lead.course });
 }
 
 /**
@@ -135,42 +136,21 @@ export async function dispatchLeadPushes(leadIds: string[], event: PushEvent): P
         collegeOptionId: { not: null },
         collegeOption: { is: { isActive: true } },
       },
-      include: { collegeOption: { select: { value: true } } },
     });
     if (integrations.length === 0) return;
-
-    const byCollege = new Map<string, typeof integrations>();
-    for (const i of integrations) {
-      const key = norm(i.collegeOption?.value);
-      byCollege.set(key, [...(byCollege.get(key) ?? []), i]);
-    }
 
     for (const ids of chunk(leadIds, 200)) {
       const leads = await prisma.lead.findMany({
         where: { id: { in: ids } },
-        select: { id: true, college: true, status: true, referredById: true },
+        select: { id: true, status: true, referredById: true },
       });
 
-      // A lead belongs to every college it has shown interest in, not only the
-      // latest one on the lead row.
-      const interests = await prisma.leadInterest.findMany({
-        where: { leadId: { in: ids } },
-        select: { leadId: true, college: true },
-      });
-      const collegesOf = new Map<string, Set<string>>();
-      const note = (leadId: string, college: string | null) => {
-        const key = norm(college);
-        if (key) collegesOf.set(leadId, (collegesOf.get(leadId) ?? new Set()).add(key));
-      };
-      for (const l of leads) note(l.id, l.college);
-      for (const it of interests) note(it.leadId, it.college);
-
+      // Every lead goes to every live integration, whatever college (if any)
+      // it names. Only the integration's own scope and approval rules apply.
       const candidates: { integrationId: string; leadId: string }[] = [];
       for (const lead of leads) {
-        for (const college of Array.from(collegesOf.get(lead.id) ?? [])) {
-          for (const i of byCollege.get(college) ?? []) {
-            if (eligible(i, lead, event)) candidates.push({ integrationId: i.id, leadId: lead.id });
-          }
+        for (const i of integrations) {
+          if (eligible(i, lead, event)) candidates.push({ integrationId: i.id, leadId: lead.id });
         }
       }
       if (candidates.length === 0) continue;
@@ -193,14 +173,12 @@ export async function dispatchLeadPushes(leadIds: string[], event: PushEvent): P
   }
 }
 
-/** Leads of the integration's college that it has not yet delivered. */
+/** Leads the integration has not yet delivered (all leads, whatever their college). */
 export function unsentLeadsWhere(
   integration: Pick<LeadIntegration, 'id' | 'pushWhen' | 'pushScope'>,
-  collegeName: string,
+  _collegeName?: string,
 ): Prisma.LeadWhereInput {
-  const college = { equals: collegeName.trim(), mode: 'insensitive' as const };
   return {
-    OR: [{ college }, { interests: { some: { college } } }],
     status: integration.pushWhen === 'ON_APPROVAL' ? 'APPROVED' : { not: 'DISAPPROVED' },
     ...(integration.pushScope === 'REFERRALS_ONLY' ? { referredById: { not: null } } : {}),
     integrationPushes: { none: { integrationId: integration.id } },
